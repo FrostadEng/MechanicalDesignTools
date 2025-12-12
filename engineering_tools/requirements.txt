@@ -1,0 +1,20 @@
+# Core scientific computing
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Data handling and analysis
+pandas>=2.0.0
+
+# Plotting and visualization
+matplotlib>=3.7.0
+
+# Unit handling
+pint>=0.21.0
+
+# Optional: For advanced calculations
+# sympy>=1.12.0
+
+# Development dependencies
+# pytest>=7.3.0
+# black>=23.0.0
+# flake8>=6.0.0
