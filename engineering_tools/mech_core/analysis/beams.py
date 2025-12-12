@@ -1,6 +1,6 @@
 import numpy as np
 from mech_core.units import ureg, Q_
-from mech_core.standards.sections import SectionProperties
+from mech_core.components.aisc_members import SectionProperties
 from mech_core.standards.materials.structural import StructuralMaterial
 
 def calculate_strong_axis_bending(

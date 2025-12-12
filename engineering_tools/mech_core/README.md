@@ -18,14 +18,13 @@ mech_core/
 │   ├── safety.py         # Laser safety (MPE/NOHD)
 │   └── fluids.py         # Assist gas calculations
 │
-└── standards/            # THE DATA (Lookup Tables)
+├── components/           # THE OBJECTS (Engineering Components)
+│   ├── __init__.py
+│   ├── fastener.py       # Fastener objects
+│   └── aisc_members.py   # AISC steel sections (database, properties, queries)
+│
+└── standards/            # THE DATA (Lookup Tables & Standards)
     ├── __init__.py
-    ├── sections.py       # AISC section property loader
-    ├── query.py          # Database query utilities
-    ├── QUERY_EXAMPLES.md # Query function documentation
-    │
-    ├── data/
-    │   └── aisc_shapes.json  # AISC steel shapes database v16.0
     │
     ├── fasteners/        # Fastener specifications
     │   ├── __init__.py
@@ -33,7 +32,8 @@ mech_core/
     │
     └── materials/        # Material properties
         ├── __init__.py
-        ├── structural.py # Structural steel (ASTM A36, A992, A500)
+        ├── aisc_shapes.json  # AISC steel shapes database v16.0
+        ├── structural.py     # Structural steel (ASTM A36, A992, A500)
         └── common_steels.py  # General steels
 ```
 
@@ -121,9 +121,8 @@ print(f"Safety factor: {results['yield_safety']:.2f}")
 
 ```python
 from mech_core.units import ureg
-from mech_core.standards.sections import get_section
+from mech_core.components.aisc_members import get_section, get_shapes_by_type
 from mech_core.standards.materials.structural import get_material
-from mech_core.standards.query import get_shapes_by_type
 from mech_core.analysis.columns import calculate_compressive_strength
 
 # Get DATA from standards
@@ -210,12 +209,9 @@ print(f"Nominal Ocular Hazard Distance: {nohd:.1f} m")
 - `get_proof_load()` - Bolt proof load
 - `get_recommended_torque()` - Assembly torque
 
-### standards/sections.py
-- `SectionProperties` - AISC section property class
+### components/aisc_members.py
+- `SectionProperties` - AISC section property class with automatic unit scaling
 - `get_section()` - Retrieve section by name (e.g., "W12X26", "C8X18.75")
-- Automatic unit scaling from AISC Database v16.0
-
-### standards/query.py
 - `get_shapes_by_type()` - Get all shapes of a type (W, C, L, HSS, etc.)
 - `get_shapes_in_range()` - Filter shapes by property ranges
 - `get_lightest_shape()` - Find most economical section meeting criteria

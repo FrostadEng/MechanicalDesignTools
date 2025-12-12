@@ -7,9 +7,8 @@ repo_root = os.path.abspath(os.path.join(current_dir, "../../"))
 sys.path.insert(0, repo_root)
 
 from mech_core.units import ureg
-from mech_core.standards.sections import get_section
+from mech_core.components.aisc_members import get_section, get_shapes_by_type
 from mech_core.standards.materials.structural import get_material
-from mech_core.standards.query import get_shapes_by_type
 from mech_core.analysis.columns import calculate_compressive_strength
 from mech_core.analysis.beams import calculate_strong_axis_bending
 

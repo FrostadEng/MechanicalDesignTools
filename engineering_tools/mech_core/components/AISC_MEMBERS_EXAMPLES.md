@@ -5,7 +5,8 @@ This document shows how to use the query functions to search and filter AISC ste
 ## Basic Usage
 
 ```python
-from mech_core.standards.query import (
+from mech_core.components.aisc_members import (
+    get_section,
     get_shapes_by_type,
     get_shapes_in_range,
     get_lightest_shape,
@@ -89,8 +90,7 @@ heavy_channels = search_shapes("X20", shape_type="C")
 ## Integration with Design Scripts
 
 ```python
-from mech_core.standards.sections import get_section
-from mech_core.standards.query import get_shapes_by_type
+from mech_core.components.aisc_members import get_section, get_shapes_by_type
 from mech_core.analysis.columns import calculate_compressive_strength
 
 # Design example: Find adequate column

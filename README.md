@@ -32,14 +32,14 @@ MechanicalDesignTools/
 │   │   ├── analysis/              # Structural analysis modules
 │   │   │   ├── beams.py          # Beam bending calculations
 │   │   │   └── columns.py        # Column compression calculations
-│   │   ├── standards/            # Material & section databases
-│   │   │   ├── data/
-│   │   │   │   └── aisc_shapes.json  # AISC shapes database
+│   │   ├── components/           # Engineering components & objects
+│   │   │   ├── fastener.py       # Fastener objects
+│   │   │   └── aisc_members.py   # AISC steel sections (database & queries)
+│   │   ├── standards/            # Standards & material databases
 │   │   │   ├── materials/
+│   │   │   │   ├── aisc_shapes.json  # AISC shapes database
 │   │   │   │   └── structural.py     # Structural steel properties
-│   │   │   ├── sections.py           # Section property loader
-│   │   │   ├── query.py              # Database query utilities
-│   │   │   └── QUERY_EXAMPLES.md     # Query function examples
+│   │   │   └── fasteners/        # Fastener standards
 │   │   └── units.py              # Pint unit registry
 │   └── projects/                 # Design project examples
 │       └── mezzanine_design/
@@ -72,9 +72,8 @@ pip install -r engineering_tools/requirements.txt
 
 ```python
 from mech_core.units import ureg
-from mech_core.standards.sections import get_section
+from mech_core.components.aisc_members import get_section, get_shapes_by_type
 from mech_core.standards.materials.structural import get_material
-from mech_core.standards.query import get_shapes_by_type
 from mech_core.analysis.columns import calculate_compressive_strength
 from mech_core.analysis.beams import calculate_strong_axis_bending
 
@@ -125,12 +124,13 @@ Beam design per AISC 360-16 Chapter F (Flexural Members)
 - Lateral-torsional buckling (LTB)
 - LRFD moment capacity (φMn)
 
-### `mech_core.standards.query`
-Database query utilities for AISC shapes:
+### `mech_core.components.aisc_members`
+AISC steel section database and query utilities:
+- `get_section()` - Retrieve section by name
 - `get_shapes_by_type()` - Get all shapes of a type
 - `get_shapes_in_range()` - Filter by property ranges
 - `get_lightest_shape()` - Find most economical section
-- See [QUERY_EXAMPLES.md](engineering_tools/mech_core/standards/QUERY_EXAMPLES.md) for details
+- `SectionProperties` - Section property class with automatic unit scaling
 
 ## Standards & References
 
