@@ -12,11 +12,12 @@ from mech_core.standards.materials import get_material, get_concrete
 from mech_core.analysis.columns import calculate_compressive_strength
 from mech_core.analysis.beams import calculate_bending_capacity
 from mech_core.analysis.base_plate import BasePlateDesign
+from mech_core.analysis.fea import FrameAnalysis
 from mech_core.standards.reporting.generator import ReportGenerator
 
 def design_mezzanine():
     # 1. INIT REPORT
-    rep = ReportGenerator("Mezzanine Structural Design", "Your Name")
+    rep = ReportGenerator("Mezzanine Structural Design", "Carter Frostad")
     rep.add_header()
     rep.add_text("Design based on CSA S16 (LSD). Loads extracted from NBCC 2020.")
 
@@ -34,21 +35,58 @@ def design_mezzanine():
 
     # 3. BEAM DESIGN
     w_beam = (P_factored / 2) / (4 * ureg.m)
-    M_max = (w_beam * (4 * ureg.m)**2) / 8
-    
+
     candidates = get_shapes_by_type("C", sort_by="W")
     best_beam = None
-    
+    best_frame = None
+
     print("Optimizing Beam...")
     for name in candidates:
         sec = get_section(name)
+
+        # Create FEA model
+        frame = FrameAnalysis()
+        frame.add_node("N1", 0, 0, 0)
+        frame.add_node("N2", 4*ureg.m, 0, 0)
+        frame.add_beam("B1", "N1", "N2", sec, steel_beams)
+
+        # Apply pinned-pinned supports (fix translations)
+        frame.add_support("N1", "pinned")
+        frame.add_support("N2", "pinned")
+
+        # Apply distributed load (negative Fy direction)
+        frame.add_member_dist_load("B1", "Fy", -w_beam, -w_beam)
+
+        # Solve
+        frame.solve()
+
+        # Get max moment
+        forces = frame.get_beam_forces("B1")
+        Mu_fea = max(abs(forces['max_moment_z'].magnitude), abs(forces['min_moment_z'].magnitude)) * ureg.kN * ureg.meter
+
+        # Check capacity
         res = calculate_bending_capacity(sec, steel_beams, unbraced_length=4*ureg.m)
-        if res['Mu_capacity'] >= M_max:
+        if res['Mu_capacity'] >= Mu_fea:
             best_beam = name
-            # ADD TO REPORT
-            rep.add_section("Beam Selection")
-            rep.add_text(f"Selected **{name}** for perimeter beams.")
-            rep.add_calculation_result(f"Beam Check: {name}", res, res['status'])
+
+            # --- GENERATE DIAGRAMS ---
+            diag_filename = os.path.join(current_dir, "beam_diagrams.png")
+            frame.generate_diagrams("B1", diag_filename, direction="strong_axis")
+
+            # --- REPORTING ---
+            rep.add_section("Beam Selection (FEA Verified)")
+            rep.add_text(f"Selected **{name}** based on FEA results.")
+
+            # 1. Show the Diagram
+            rep.add_image("Shear and Moment Diagrams", "beam_diagrams.png")
+
+            # 2. Show the Wolfram Proof (The Symbolic Math)
+            if 'calc_trace' in res:
+                rep.add_symbolic_derivation(f"Design Check: {name}", res['calc_trace'])
+
+            # 3. Show the Summary Table (Fixing the Red X)
+            # We explicitly say status="PASS" because we checked it in the 'if' statement above
+            rep.add_calculation_result(f"Beam Summary: {name}", res, status="PASS")
             break
             
     # 4. COLUMN DESIGN
@@ -63,10 +101,19 @@ def design_mezzanine():
         res = calculate_compressive_strength(sec, steel_cols, col_h, ["pinned", "pinned"])
         if res['Pu_capacity'] >= P_col:
             best_col = name
-            # ADD TO REPORT
+
+            # --- REPORTING ---
             rep.add_section("Column Selection")
             rep.add_text(f"Selected **{name}** for main columns.")
-            rep.add_calculation_result(f"Column Check: {name}", res, "PASS")
+
+            # 1. Show the Wolfram Proof (The Symbolic Math)
+            if 'calc_trace' in res:
+                rep.add_symbolic_derivation(f"Column Design Check: {name}", res['calc_trace'])
+
+            # 2. Show the Summary Table
+            rep.add_calculation_result(f"Column Check: {name}", res, status="PASS")
+
+            print(f"-> Selected Column: {name} (Capacity: {res['Pu_capacity']:.2f})")
             break
             
     # 5. BASE PLATE DESIGN

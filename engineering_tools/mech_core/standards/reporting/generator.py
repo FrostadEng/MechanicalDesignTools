@@ -26,6 +26,17 @@ class ReportGenerator:
     def add_text(self, text: str):
         self.elements.append(text)
 
+    def add_image(self, caption: str, path: str):
+        """
+        Adds an image to the report with caption.
+
+        Args:
+            caption: Image caption text
+            path: Path to the image file
+        """
+        image_md = f"![{caption}]({path})\n*{caption}*"
+        self.elements.append(image_md)
+
     def add_calculation_result(self, title: str, data_dict: dict, status: str = None):
         """
         Formats a dictionary (like from beams.py/columns.py) into a readable block.
@@ -43,7 +54,7 @@ class ReportGenerator:
         
         for k, v in data_dict.items():
             # Skip internal keys if needed
-            if k in ["status", "axis"]: continue
+            if k in ["status", "axis", "calc_trace", "ltb_zone"]: continue
             
             # Format Pint Quantities
             if hasattr(v, "magnitude"):
@@ -82,3 +93,60 @@ class ReportGenerator:
             f.write(full_text)
         
         print(f"Report saved to: {os.path.abspath(filename)}")
+
+    def add_symbolic_derivation(self, title: str, steps: list):
+        """
+        Renders a calculation trace using the "Physics Exam" method.
+        
+        Args:
+            steps: List of dicts with:
+                   - 'desc': Step Title
+                   - 'ref': (Optional) Design Code Reference
+                   - 'variables': (Optional) List of strings ["m = 10 kg", "a = 5 m/s2"] for the top
+                   - 'symbol': Governing Equation (F = ma)
+                   - 'sub': Substitution (F = 10 * 5)
+                   - 'result': Final Answer (50 N)
+                   - 'conclusion': The "Therefore" statement.
+        """
+        self.elements.append(f"### {title}")
+        
+        for step in steps:
+            # 1. Description (Header)
+            header = f"**{step['desc']}**"
+            if 'ref' in step:
+                header += f" *[{step['ref']}]*"
+            self.elements.append(header)
+            
+            # 2. Math Block
+            lines = []
+            lines.append("$$")
+            
+            # A. Variable Declaration (Used in Step 1)
+            if 'variables' in step:
+                lines.append(r"\begin{aligned}")
+                # Group into pairs for compact display
+                vars_list = step['variables']
+                for i in range(0, len(vars_list), 2):
+                    v1 = vars_list[i]
+                    v2 = vars_list[i+1] if i+1 < len(vars_list) else ""
+                    # LaTeX alignment magic
+                    lines.append(f"{v1} & \\quad {v2} \\\\")
+                lines.append(r"\end{aligned}")
+            
+            # B. The Calculation (Equation -> Sub -> Result)
+            else:
+                if 'symbol' in step:
+                    lines.append(step['symbol'] + r" \\")
+                if 'sub' in step:
+                    lines.append(step['sub'] + r" \\")
+                if 'result' in step:
+                    lines.append(r"\rightarrow \mathbf{" + step['result'] + "}")
+            
+            lines.append("$$")
+            self.elements.append("\n".join(lines))
+            
+            # 3. The "Therefore" Conclusion
+            if 'conclusion' in step:
+                self.elements.append(f"> *{step['conclusion']}*\n")
+            else:
+                self.elements.append("") # Spacing

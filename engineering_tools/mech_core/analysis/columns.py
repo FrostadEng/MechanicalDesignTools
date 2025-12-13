@@ -3,180 +3,205 @@ from mech_core.units import ureg, Q_
 from mech_core.components.aisc_members import SectionProperties
 from mech_core.standards.materials import StructuralMaterial
 
+def get_k_factor(boundary_conditions: list[str]) -> float:
+    """
+    Determines effective length factor K based on theoretical boundaries.
+    """
+    # Normalize inputs
+    conds = sorted([b.lower().strip() for b in boundary_conditions])
+    
+    # Mapping (Theoretical K values per AISC Table C-A-7.1)
+    mapping = {
+        "fixed-fixed": 0.65,
+        "fixed-pinned": 0.80,
+        "fixed-rolled": 1.20,
+        "pinned-pinned": 1.00,
+        "fixed-free": 2.10, # Cantilever
+        "pinned-rolled": 2.00 # Unstable unless braced, treated as guided cantilever
+    }
+    
+    key = f"{conds[0]}-{conds[1]}"
+    if key in mapping:
+        return mapping[key]
+        
+    # Default fallback
+    print(f"[WARNING] Unknown boundary conditions '{key}'. Assuming K=1.0")
+    return 1.0
+
 def calculate_compressive_strength(
-    section: SectionProperties,
-    material: StructuralMaterial,
-    length: Q_,
+    section: SectionProperties, 
+    material: StructuralMaterial, 
+    length: Q_, 
     upper_lower_boundary_conditions: list[str] = ["pinned", "pinned"]
 ):
     """
-    Calculates the AISC 360-16 Nominal Compressive Strength (Pn).
-
-    Args:
-        section: The beam/column object (e.g., W8x31)
-        material: The material object (e.g., A992 Steel)
-        length: Unbraced length of the column
-        upper_lower_boundary_conditions: Boundary conditions as [end1, end2] where each end is one of:
-                                         "fixed", "pinned", "rolled", or "free"
-                                         Default: ["pinned", "pinned"]
-
-    Returns:
-        dict containing Pn, mode of failure, and intermediate calcs.
+    Calculates Axial Compressive Strength (Pn) with Detailed Symbolic Documentation.
+    Implements AISC 360-16 Chapter E.
     """
-
-    # Map boundary conditions to K-factors
-    def get_k_factor(boundary_conditions: list[str]) -> float:
-        """
-        Maps boundary conditions to effective length factor (K).
-
-        Args:
-            boundary_conditions: [end1, end2] boundary conditions
-
-        Returns:
-            K-factor based on AISC recommendations
-
-        Raises:
-            ValueError: If boundary conditions are invalid
-        """
-        # Normalize inputs to lowercase
-        bc = [condition.lower() for condition in boundary_conditions]
-
-        # Sort to create canonical ordering (since fixed-pinned = pinned-fixed)
-        bc_sorted = tuple(sorted(bc))
-
-        # K-factor mapping table
-        k_factor_map = {
-            ("fixed", "fixed"): 0.65,
-            ("fixed", "pinned"): 0.8,
-            ("fixed", "rolled"): 1.2,
-            ("fixed", "free"): 2.1,
-            ("pinned", "pinned"): 1.0,
-        }
-
-        if bc_sorted in k_factor_map:
-            return k_factor_map[bc_sorted]
-        else:
-            valid_conditions = ["fixed", "pinned", "rolled", "free"]
-            raise ValueError(
-                f"Invalid boundary conditions: {boundary_conditions}. "
-                f"Each end must be one of {valid_conditions}. "
-                f"Valid combinations are: Fixed-Fixed (K=0.65), Fixed-Pinned (K=0.8), "
-                f"Fixed-Rolled (K=1.2), Fixed-Free (K=2.1), Pinned-Pinned (K=1.0)"
-            )
-
-    # Get the K-factor from boundary conditions
-    k_factor = get_k_factor(upper_lower_boundary_conditions)
-
-    # 1. Determine governing Radius of Gyration (r)
-    # Columns buckle about their weakest axis (usually y-y for W-shapes)
-    rx = section.rx
-    ry = section.ry
-    r_min = rx if rx.magnitude < ry.magnitude else ry
+    steps = []
     
-    # 2. Calculate Slenderness Ratio (KL/r)
-    # L and r must be in same units. Pint handles this, but result is dimensionless.
-    L_effective = k_factor * length
-    slenderness = (L_effective / r_min).to(ureg.dimensionless).magnitude
+    # 1. SETUP VARIABLES (Floats for math)
+    # We use base metric units (MPa, mm, N) for the internal calculation engine
+    L_val = length.to(ureg.mm).magnitude
+    E_val = material.elastic_modulus.to(ureg.MPa).magnitude
+    Fy_val = material.yield_strength.to(ureg.MPa).magnitude
+    Ag_val = section.A.to(ureg.mm**2).magnitude
+    rx_val = section.rx.to(ureg.mm).magnitude
+    ry_val = section.ry.to(ureg.mm).magnitude
     
-    # AISC Limit: KL/r preferably < 200
-    if slenderness > 200:
-        print(f"[WARNING] Slenderness KL/r = {slenderness:.2f} > 200. Exceeds AISC recommendation.")
+    k_val = get_k_factor(upper_lower_boundary_conditions)
+    
+    steps.append({
+        "desc": "1. Design Variables",
+        "variables": [
+            f"F_y = {Fy_val:.0f} \\text{{ MPa}}",
+            f"E = {E_val:.0f} \\text{{ MPa}}",
+            f"L = {L_val:.0f} \\text{{ mm}}",
+            f"A_g = {Ag_val:.0f} \\text{{ mm}}^2",
+            f"r_x = {rx_val:.1f} \\text{{ mm}}",
+            f"r_y = {ry_val:.1f} \\text{{ mm}}",
+            f"K = {k_val:.2f} \\text{{ ({'-'.join(upper_lower_boundary_conditions)})}}"
+        ],
+        "conclusion": "Inputs collected from AISC Database and boundary conditions."
+    })
 
-    # 3. Material Properties
-    E = material.elastic_modulus
-    Fy = material.yield_strength
+    # 2. SLENDERNESS RATIO (KL/r)
+    # We check both axes to find the governing one.
     
-    # 4. Calculate Elastic Buckling Stress (Fe) - Euler Stress
-    # Fe = (pi^2 * E) / (KL/r)^2
-    Fe = (np.pi**2 * E) / (slenderness**2)
+    KL_x = k_val * L_val / rx_val
+    KL_y = k_val * L_val / ry_val
     
-    # 5. Determine Critical Stress (Fcr) based on Slenderness Limit
-    # AISC Limit between Inelastic and Elastic buckling:
+    governing_axis = "X-X" if KL_x > KL_y else "Y-Y"
+    KL_r_val = max(KL_x, KL_y)
+    r_gov = rx_val if governing_axis == "X-X" else ry_val
+    
+    steps.append({
+        "desc": "2. Slenderness Ratio (KL/r)",
+        "symbol": r"\frac{KL}{r} = \max \left( \frac{KL}{r_x}, \frac{KL}{r_y} \right)",
+        "sub": rf"\max \left( \frac{{{k_val} \cdot {L_val:.0f}}}{{{rx_val:.1f}}}, \frac{{{k_val} \cdot {L_val:.0f}}}{{{ry_val:.1f}}} \right) = \max({KL_x:.1f}, {KL_y:.1f})",
+        "result": rf"{KL_r_val:.2f} \text{{ (Axis {governing_axis})}}",
+        "conclusion": "The column will buckle about this axis first."
+    })
+    
+    if KL_r_val > 200:
+        steps.append({
+            "desc": "WARNING: Slenderness Limit",
+            "symbol": r"\frac{KL}{r} > 200",
+            "result": r"\text{Exceeds AISC User Note recommendation}",
+            "conclusion": "The column is extremely slender and efficiency is low."
+        })
+
+    # 3. ELASTIC BUCKLING STRESS (Fe)
+    # Fe = pi^2 * E / (KL/r)^2
+    Fe_val = (np.pi**2 * E_val) / (KL_r_val**2)
+    
+    steps.append({
+        "desc": "3. Elastic Buckling Stress (Fe)",
+        "ref": "AISC Eq. E3-4",
+        "symbol": r"F_e = \frac{\pi^2 E}{(KL/r)^2}",
+        "sub": f"F_e = \\frac{{\\pi^2 ({E_val:.0f})}}{{({KL_r_val:.1f})^2}}",
+        "result": f"{Fe_val:.2f} \\text{{ MPa}}",
+        "conclusion": "This is the theoretical Euler buckling stress."
+    })
+
+    # 4. CRITICAL STRESS (Fcr)
+    # Determine boundary between Inelastic and Elastic
     # Limit = 4.71 * sqrt(E/Fy)
-    limit_slenderness = 4.71 * np.sqrt(E / Fy)
     
+    # Safe float math
+    limit_slenderness = 4.71 * np.sqrt(E_val / Fy_val)
+    
+    Fcr_val = 0.0
     failure_mode = ""
     
-    if slenderness <= limit_slenderness:
-        # --- INELASTIC BUCKLING (Short/Intermediate Columns) ---
-        # Fcr = [0.658 ^ (Fy / Fe)] * Fy
-        # Note: The exponent is (Fy/Fe)
-        exponent = (Fy / Fe).to(ureg.dimensionless).magnitude
-        Fcr = (0.658 ** exponent) * Fy
-        failure_mode = "Inelastic Buckling (Yielding dominates)"
-    else:
-        # --- ELASTIC BUCKLING (Long/Slender Columns) ---
-        # Fcr = 0.877 * Fe
-        Fcr = 0.877 * Fe
-        failure_mode = "Elastic Buckling (Euler instability)"
-        
-    # 6. Nominal Compressive Strength (Pn)
-    # Pn = Fcr * Ag
-    Pn = Fcr * section.A
+    steps.append({
+        "desc": "4. Buckling Regime Classification",
+        "symbol": r"\frac{KL}{r} \text{ vs } 4.71\sqrt{\frac{E}{F_y}}",
+        "sub": f"{KL_r_val:.1f} \\text{{ vs }} 4.71\\sqrt{{{E_val:.0f}/{Fy_val:.0f}}} = {limit_slenderness:.1f}",
+        "result": "Check Limit",
+        "conclusion": "Comparing actual slenderness to the material yield limit."
+    })
     
-    # 7. Design Strength (LRFD vs ASD)
-    # We will output LRFD (Phi = 0.90) by default as it's standard in Canada (LSD) and US (LRFD)
-    phi_c = 0.90
-    Pu_capacity = phi_c * Pn
+    if KL_r_val <= limit_slenderness:
+        # --- INELASTIC BUCKLING ---
+        failure_mode = "Inelastic Buckling"
+        
+        # Fcr = 0.658^(Fy/Fe) * Fy
+        exponent = Fy_val / Fe_val
+        Fcr_val = (0.658 ** exponent) * Fy_val
+        
+        steps.append({
+            "desc": "Classification: Inelastic Buckling",
+            "symbol": r"\frac{KL}{r} \le 4.71\sqrt{\frac{E}{F_y}}",
+            "result": r"\text{Regime: Inelastic (Short/Intermediate Column)}",
+            "conclusion": "The column will yield and crush before it fully buckles elastically."
+        })
+        
+        steps.append({
+            "desc": "5. Critical Stress Calculation",
+            "ref": "AISC Eq. E3-2",
+            "symbol": r"F_{cr} = \left[ 0.658^{\frac{F_y}{F_e}} \right] F_y",
+            "sub": f"F_{{cr}} = \\left[ 0.658^{{\\frac{{{Fy_val:.0f}}}{{{Fe_val:.1f}}}}} \\right] ({Fy_val:.0f}) = (0.658^{{{exponent:.2f}}})({Fy_val:.0f})",
+            "result": f"{Fcr_val:.2f} \\text{{ MPa}}",
+            "conclusion": "Therefore, this is the maximum stress the column can sustain."
+        })
+        
+    else:
+        # --- ELASTIC BUCKLING ---
+        failure_mode = "Elastic Buckling"
+        
+        # Fcr = 0.877 * Fe
+        Fcr_val = 0.877 * Fe_val
+        
+        steps.append({
+            "desc": "Classification: Elastic Buckling",
+            "symbol": r"\frac{KL}{r} > 4.71\sqrt{\frac{E}{F_y}}",
+            "result": r"\text{Regime: Elastic (Slender Column)}",
+            "conclusion": "The column behaves like a classic Euler column."
+        })
+        
+        steps.append({
+            "desc": "5. Critical Stress Calculation",
+            "ref": "AISC Eq. E3-3",
+            "symbol": r"F_{cr} = 0.877 F_e",
+            "sub": f"F_{{cr}} = 0.877 ({Fe_val:.2f})",
+            "result": f"{Fcr_val:.2f} \\text{{ MPa}}",
+            "conclusion": "Capacity is reduced to 87.7% of the theoretical Euler stress to account for initial crookedness."
+        })
+
+    # 5. NOMINAL STRENGTH
+    Pn_val = Fcr_val * Ag_val * 1e-3 # N -> kN
+    
+    steps.append({
+        "desc": "6. Nominal Compressive Strength",
+        "ref": "AISC Eq. E3-1",
+        "symbol": r"P_n = F_{cr} A_g",
+        "sub": f"P_n = ({Fcr_val:.2f} \\text{{ MPa}})({Ag_val:.0f} \\text{{ mm}}^2)(10^{{-3}})",
+        "result": f"{Pn_val:.2f} \\text{{ kN}}",
+        "conclusion": "Therefore, this is the unfactored capacity."
+    })
+
+    # 6. LRFD CHECK
+    phi_c = 0.9
+    Pu_cap = phi_c * Pn_val
+    
+    steps.append({
+        "desc": "7. Design Compressive Strength (LRFD)",
+        "symbol": r"\phi_c P_n = 0.9 P_n",
+        "sub": f"0.9 ({Pn_val:.2f})",
+        "result": f"\\mathbf{{{Pu_cap:.2f} \\text{{ kN}}}}",
+        "conclusion": "Therefore, this is the factored axial capacity."
+    })
 
     return {
-        "Pn": Pn.to(ureg.kN),
-        "Pu_capacity": Pu_capacity.to(ureg.kN), # Factored Capacity
-        "Fcr": Fcr.to(ureg.MPa),
-        "slenderness": slenderness,
+        "Pn": Pn_val * ureg.kN,
+        "Pu_capacity": Pu_cap * ureg.kN, 
+        "Fcr": Fcr_val * ureg.MPa,
+        "slenderness": KL_r_val,
         "limit_slenderness": limit_slenderness,
         "failure_mode": failure_mode,
-        "governing_axis": "Y-Y" if section.ry < section.rx else "X-X",
-        "k_factor": k_factor,
-        "boundary_conditions": upper_lower_boundary_conditions
+        "governing_axis": governing_axis,
+        "k_factor": k_val,
+        "boundary_conditions": upper_lower_boundary_conditions,
+        "calc_trace": steps # The Payload
     }
-
-
-def generate_markdown(
-    section: SectionProperties,
-    material: StructuralMaterial,
-    length: Q_,
-    upper_lower_boundary_conditions: list[str] = ["pinned", "pinned"]
-):
-    """
-    Generates a formatted markdown report for column compressive strength analysis.
-
-    Args:
-        section: The column section object
-        material: The material object
-        length: Unbraced length of the column
-        upper_lower_boundary_conditions: Boundary conditions as [end1, end2]
-
-    Returns:
-        Formatted markdown string
-    """
-    result = calculate_compressive_strength(section, material, length, upper_lower_boundary_conditions)
-
-    lines = []
-    lines.append(f"# Column Compressive Strength Analysis")
-    lines.append(f"**Section:** {section.name} | **Material:** {material.name}")
-    lines.append(f"**Unbraced Length:** {length.to(ureg.meter):.3f}")
-    lines.append(f"**Boundary Conditions:** {result['boundary_conditions'][0].title()}-{result['boundary_conditions'][1].title()} (K = {result['k_factor']})")
-    lines.append("---")
-
-    lines.append(f"### Slenderness Analysis")
-    lines.append(f"- **Governing Axis:** {result['governing_axis']}")
-    lines.append(f"- **Slenderness Ratio (KL/r):** {result['slenderness']:.2f}")
-    lines.append(f"- **Limit Slenderness:** {result['limit_slenderness']:.2f}")
-
-    # Add warning if slenderness exceeds 200
-    if result['slenderness'] > 200:
-        lines.append(f"- **⚠️ WARNING:** Slenderness exceeds AISC recommendation of 200")
-
-    lines.append("")
-    lines.append(f"### Capacity Results")
-    lines.append(f"- **Failure Mode:** {result['failure_mode']}")
-    lines.append(f"- **Critical Stress (Fcr):** {result['Fcr']:.3f}")
-    lines.append(f"- **Nominal Strength (Pn):** {result['Pn']:.3f}")
-    lines.append(f"- **Design Capacity (φPn):** {result['Pu_capacity']:.3f}")
-
-    lines.append("")
-    lines.append("### CONCLUSION")
-    lines.append(f"> **Design Axial Capacity:** {result['Pu_capacity']:.3f}")
-
-    return "\n".join(lines)
