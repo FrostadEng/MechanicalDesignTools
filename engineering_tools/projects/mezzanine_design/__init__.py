@@ -7,8 +7,8 @@ repo_root = os.path.abspath(os.path.join(current_dir, "../../"))
 sys.path.insert(0, repo_root)
 
 from mech_core.units import ureg
-from mech_core.standards.sections import get_section
-from mech_core.standards.materials.structural import get_material
+from mech_core.components.aisc_members import get_section
+from mech_core.standards.materials import get_material
 from mech_core.analysis.columns import calculate_compressive_strength
 
 def run_design():
@@ -47,7 +47,7 @@ def run_design():
             # But for a "Table", K=2.0 (Cantilever) if unbraced, or K=1.0 if cross-braced.
             # Let's assume cross-braced (K=1.0).
             
-            result = calculate_compressive_strength(section, steel, column_height, k_factor=1.0)
+            result = calculate_compressive_strength(section, steel, column_height, ["pinned", "pinned"])
             
             capacity = result['Pu_capacity']
             slenderness = result['slenderness']
