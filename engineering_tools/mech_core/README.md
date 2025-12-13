@@ -11,8 +11,9 @@ mech_core/
 │
 ├── analysis/              # THE SOLVERS (Math & Calculations)
 │   ├── __init__.py
-│   ├── beams.py          # Beam bending & lateral-torsional buckling (AISC 360-16)
-│   ├── columns.py        # Column compression & buckling (AISC 360-16)
+│   ├── beams.py          # Beam bending & LTB (AISC 360-16) - strong/weak axis
+│   ├── columns.py        # Column compression & buckling (AISC 360-16) - with BC mapping
+│   ├── base_plate.py     # Base plate design (CSA S16) - bearing & anchor bolts
 │   ├── bolted_joint.py   # Bolted joint analysis (VDI 2230)
 │   ├── rigid_body.py     # Robot payload calculations
 │   ├── safety.py         # Laser safety (MPE/NOHD)
@@ -30,11 +31,19 @@ mech_core/
     │   ├── __init__.py
     │   └── iso_metric.py # ISO metric bolts/threads
     │
-    └── materials/        # Material properties
+    ├── materials/        # Material properties (modular architecture)
+    │   ├── __init__.py           # Unified materials API
+    │   ├── steel.py              # Structural steel physics (ASTM/CSA)
+    │   ├── concrete.py           # Concrete material properties
+    │   ├── inventory.py          # Stock thickness manager (singleton)
+    │   ├── common_steels.py      # General steels
+    │   └── data/
+    │       ├── aisc_shapes.json         # AISC steel shapes database v16.0
+    │       └── standard_thicknesses.json # Plate/sheet stock sizes
+    │
+    └── reporting/        # Report generation
         ├── __init__.py
-        ├── aisc_shapes.json  # AISC steel shapes database v16.0
-        ├── structural.py     # Structural steel (ASTM A36, A992, A500)
-        └── common_steels.py  # General steels
+        └── generator.py  # Markdown calculation package generator
 ```
 
 ## Philosophy
@@ -117,34 +126,53 @@ results = joint.analyze_external_load(
 print(f"Safety factor: {results['yield_safety']:.2f}")
 ```
 
-### Example 3: Structural Steel Design
+### Example 3: Structural Steel Design with Reporting
 
 ```python
 from mech_core.units import ureg
 from mech_core.components.aisc_members import get_section, get_shapes_by_type
-from mech_core.standards.materials.structural import get_material
+from mech_core.standards.materials import get_material, get_concrete, stock
 from mech_core.analysis.columns import calculate_compressive_strength
+from mech_core.analysis.base_plate import BasePlateDesign
+from mech_core.standards.reporting.generator import ReportGenerator
+
+# Initialize report
+report = ReportGenerator("Column Design", "Engineer Name")
+report.add_header()
 
 # Get DATA from standards
 steel = get_material("ASTM A36")  # Fy = 250 MPa, E = 200 GPa
+concrete = get_concrete(25)  # 25 MPa concrete
 w_shapes = get_shapes_by_type("W", sort_by="W")  # All W-shapes, sorted by weight
 
 # Design parameters
 column_height = 3.0 * ureg.meter
 required_capacity = 100 * ureg.kN
-k_factor = 1.0  # Pinned-pinned
 
 # Find lightest adequate column (the solver)
 for shape_name in w_shapes:
     section = get_section(shape_name)
-    result = calculate_compressive_strength(section, steel, column_height, k_factor)
+    result = calculate_compressive_strength(
+        section, steel, column_height,
+        ["pinned", "pinned"]  # Boundary conditions
+    )
 
     if result['Pu_capacity'] >= required_capacity:
         print(f"Selected: {shape_name}")
-        print(f"Capacity: {result['Pu_capacity']:.2f}")
-        print(f"Slenderness: {result['slenderness']:.1f}")
-        print(f"Mode: {result['failure_mode']}")
+        report.add_calculation_result(f"Column: {shape_name}", result, "PASS")
+
+        # Design base plate
+        base_plate = BasePlateDesign(
+            column=section,
+            load_Pu=required_capacity,
+            steel_grade=steel,
+            concrete=concrete
+        )
+        report.add_module(base_plate)
         break
+
+# Save professional calculation package
+report.save("Column_Design.md")
 ```
 
 ### Example 4: Laser Safety Calculation
@@ -168,16 +196,29 @@ print(f"Nominal Ocular Hazard Distance: {nohd:.1f} m")
 ## Available Modules
 
 ### analysis/beams.py
-- `calculate_strong_axis_bending()` - Flexural design per AISC 360-16 Chapter F
-- Yielding limit state (Mp = Fy * Zx)
-- Lateral-torsional buckling (LTB) zones 1, 2, 3
+- `calculate_bending_capacity()` - Flexural design per AISC 360-16 Chapter F
+- Strong axis (X-X) and weak axis (Y-Y) bending
+- Yielding limit state (Mp = Fy * Z)
+- Lateral-torsional buckling (LTB) zones 1, 2, 3 for strong axis
 - LRFD moment capacity (φMn)
+- `generate_markdown()` - Report generation
 
 ### analysis/columns.py
 - `calculate_compressive_strength()` - Compression design per AISC 360-16 Chapter E
+- Boundary condition mapping (string-based: `["pinned", "pinned"]`, `["fixed", "free"]`)
 - Slenderness ratio (KL/r)
 - Elastic vs inelastic buckling modes
 - LRFD capacity (φPn)
+- `generate_markdown()` - Report generation
+
+### analysis/base_plate.py
+- `BasePlateDesign` - Base plate design per CSA S16
+- Bearing pressure on concrete (CSA A23.3)
+- Required thickness calculation
+- Standard thickness selection from inventory
+- 4-bolt anchor pattern layout
+- Edge distance and spacing checks
+- `generate_markdown()` - Integrated reporting
 
 ### analysis/bolted_joint.py
 - `BoltedJoint` - Joint stiffness analysis
@@ -218,16 +259,28 @@ print(f"Nominal Ocular Hazard Distance: {nohd:.1f} m")
 - `get_available_types()` - List all shape types in database
 - `search_shapes()` - Search by name pattern
 
-### standards/materials/structural.py
-- `StructuralMaterial` - Material property class with Pint units
-- `get_material()` - Lookup structural steel (ASTM A36, A992, A500)
-- Yield strength, elastic modulus, density
+### standards/materials/ (Modular Architecture)
+**Unified API through `__init__.py`:**
+- `get_material()` - Structural steel (ASTM A36, A992, CSA G40.21 350W/300W)
+- `get_concrete()` - Concrete materials with configurable fc'
+- `stock` - Singleton for standard thickness lookups
 
-### standards/materials/common_steels.py
-- `STEELS` - Material property database
-- `MaterialProperties` - Material data class
-- `get_material()` - Lookup material by designation
-- `SAFETY_FACTORS` - Recommended design factors
+**Internal modules:**
+- `steel.py` - `StructuralMaterial` dataclass with Pint units
+- `concrete.py` - `ConcreteMaterial` dataclass
+- `inventory.py` - `MaterialStockManager` singleton for plate/sheet thicknesses
+- `common_steels.py` - General purpose steels
+
+**Data files:**
+- `data/aisc_shapes.json` - AISC section database
+- `data/standard_thicknesses.json` - Stock plate/sheet sizes (metric/imperial)
+
+### standards/reporting/generator.py
+- `ReportGenerator` - Professional markdown calculation packages
+- `add_header()`, `add_section()`, `add_text()` - Report building
+- `add_calculation_result()` - Formatted calculation results
+- `add_module()` - Integrate analysis modules with reporting
+- `save()` - Export to .md files
 
 ## Adding New Modules
 
