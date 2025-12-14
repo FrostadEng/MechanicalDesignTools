@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from mech_core.standards.fasteners import geometry, materials
-from mech_core.units import ureg, Q_
+from mech_core.standards.units import ureg, Q_
 
 @dataclass
 class Bolt:

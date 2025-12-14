@@ -12,8 +12,8 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, "../"))
 sys.path.insert(0, repo_root)
 
-from mech_core.units import ureg
-from mech_core.components.aisc_members import get_section
+from mech_core.standards.units import ureg
+from mech_core.components.members.aisc import get_section
 from mech_core.standards.materials import get_material
 from mech_core.analysis.fea import FrameAnalysis
 

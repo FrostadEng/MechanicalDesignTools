@@ -3,7 +3,7 @@ mech_core/standards/fasteners/materials.py
 ISO 898-1 Mechanical Properties for Fasteners
 """
 from dataclasses import dataclass
-from mech_core.units import ureg, Q_
+from mech_core.standards.units import ureg, Q_
 
 @dataclass(frozen=True)
 class BoltMaterial:
@@ -15,8 +15,10 @@ class BoltMaterial:
 
 _MAT_DB = {
     "8.8":  {"Sp": 600, "Sy": 640, "Sut": 800},
-    "10.9": {"Sp": 830, "Sy": 900, "Sut": 1000},
-    "12.9": {"Sp": 970, "Sy": 1100, "Sut": 1200},
+    "10.9": {"Sp": 830, "Sy": 900, "Sut": 1040}, # 10.9 Sut is 1040 MPa in ISO 898-1
+    "12.9": {"Sp": 970, "Sy": 1100, "Sut": 1220},
+    "A325": {"Sp": 600, "Sy": 635, "Sut": 825}, 
+    "A325M": {"Sp": 600, "Sy": 635, "Sut": 825}, 
 }
 
 def get_iso_property_class(name: str) -> BoltMaterial:

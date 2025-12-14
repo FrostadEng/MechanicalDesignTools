@@ -8,10 +8,10 @@ and filtering capabilities. Includes automatic unit scaling per AISC Database v1
 import json
 import os
 from typing import List, Optional
-from mech_core.units import ureg, Q_
+from mech_core.standards.units import ureg, Q_
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(CURRENT_DIR, "../standards/materials/data", "aisc_shapes.json")
+DB_PATH = os.path.join(CURRENT_DIR, "../../standards/materials/data", "aisc_shapes.json")
 
 _SHAPE_DB = {}
 _METRIC_MAP = {}

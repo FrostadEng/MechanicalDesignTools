@@ -3,7 +3,7 @@ mech_core/standards/materials/concrete.py
 Concrete material definitions and properties.
 """
 from dataclasses import dataclass
-from ...units import ureg, Q_
+from ..units import ureg, Q_
 
 @dataclass(frozen=True)
 class ConcreteMaterial:

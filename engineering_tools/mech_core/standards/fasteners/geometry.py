@@ -1,76 +1,91 @@
 """
 mech_core/standards/fasteners/geometry.py
-ISO Metric Thread Geometry Standards (ISO 68-1, ISO 261, ISO 4014)
+ISO Metric Thread Geometry Standards (ISO 261, ISO 724, ISO 898-1).
 """
 from dataclasses import dataclass
 import numpy as np
-
-from mech_core.units import ureg, Q_
+from mech_core.standards.units import ureg, Q_
 
 @dataclass(frozen=True)
 class MetricThread:
     """Immutable representation of a thread profile."""
     name: str
-    nominal_dia: Q_  # [length]
-    pitch: Q_        # [length]
-    pitch_dia: Q_    # [length]
-    minor_dia: Q_    # [length]
+    nominal_dia: Q_  # d
+    pitch: Q_        # P
+    stress_area: Q_  # As
     
     @property
-    def stress_area(self) -> Q_:
-        """Calculates Tensile Stress Area (As) per ISO 898-1"""
-        # As = (pi/4) * ((d2 + d3) / 2)^2
-        d2 = self.pitch_dia
-        d3 = self.minor_dia
-        area = (np.pi / 4) * ((d2 + d3) / 2)**2
-        return area
+    def minor_diameter(self) -> Q_:
+        """Calculate minor diameter (d3) for root area checks"""
+        d_val = self.nominal_dia.to(ureg.mm).magnitude
+        p_val = self.pitch.to(ureg.mm).magnitude
+        # ISO Formula: d3 = d - 1.226869 * P
+        d3 = d_val - (1.226869 * p_val)
+        return d3 * ureg.mm
 
 @dataclass(frozen=True)
 class HexHead:
-    """Immutable representation of a Hex Head (ISO 4014)"""
-    width_flats: Q_    # s
-    width_corners: Q_  # e
-    height: Q_         # k
+    """Immutable representation of a Hex Head (ISO 4014 / DIN 931)"""
+    width_flats: Q_    # s (Wrench size)
+    height: Q_         # k (Head height)
 
-# --- THE DATABASE ---
-# We define the raw data here, but we expose Objects, not Dicts.
-
-_THREADS_DB = {
-    "M6":  {"p": 1.0,  "d2": 5.350,  "d3": 4.917},
-    "M8":  {"p": 1.25, "d2": 7.188,  "d3": 6.647},
-    "M10": {"p": 1.5,  "d2": 9.026,  "d3": 8.376},
-    "M12": {"p": 1.75, "d2": 10.863, "d3": 10.106},
-    "M16": {"p": 2.0,  "d2": 14.701, "d3": 13.835},
-}
-
-_HEADS_DB = {
-    "M6":  {"s": 10.0, "e": 11.55, "k": 4.0},
-    "M8":  {"s": 13.0, "e": 15.01, "k": 5.3},
-    "M10": {"s": 16.0, "e": 18.48, "k": 6.4},
-    "M12": {"s": 18.0, "e": 20.78, "k": 7.5},
-    "M16": {"s": 24.0, "e": 27.71, "k": 10.0},
+# --- THE ISO STANDARD DATABASE (COARSE SERIES) ---
+# Source: ISO 261 (Threads) and ISO 4014 (Heads)
+_ISO_DATA = {
+    # Size: (Pitch_mm, StressArea_mm2, WidthFlats_mm, HeadHeight_mm)
+    "M5":  (0.8,   14.2,  8.0,  3.5),
+    "M6":  (1.0,   20.1,  10.0, 4.0),
+    "M8":  (1.25,  36.6,  13.0, 5.3),
+    "M10": (1.5,   58.0,  16.0, 6.4),
+    "M12": (1.75,  84.3,  18.0, 7.5),  
+    "M14": (2.0,   115.0, 21.0, 8.8),  
+    "M16": (2.0,   157.0, 24.0, 10.0),
+    "M20": (2.5,   245.0, 30.0, 12.5), 
+    "M22": (2.5,   303.0, 34.0, 14.0),
+    "M24": (3.0,   353.0, 36.0, 15.0),
+    "M27": (3.0,   459.0, 41.0, 17.0),
+    "M30": (3.5,   561.0, 46.0, 18.7),
+    "M36": (4.0,   817.0, 55.0, 22.5),
+    "M42": (4.5,   1120.0, 65.0, 26.0),
+    "M48": (5.0,   1470.0, 75.0, 30.0),
+    "M56": (5.5,   2030.0, 85.0, 35.0),
+    "M64": (6.0,   2680.0, 95.0, 40.0)
 }
 
 def get_metric_thread(size: str) -> MetricThread:
-    """Factory function to fetch safe, unit-aware thread objects."""
-    if size not in _THREADS_DB:
-        raise ValueError(f"Thread '{size}' not found in database.")
+    """
+    Factory function to fetch safe, unit-aware thread objects.
+    Args:
+        size: "M20", "m20", "M20x2.5" (will parse "M20")
+    """
+    # Clean input: "M20x2.5" -> "M20"
+    clean_size = size.split('x')[0].upper()
     
-    data = _THREADS_DB[size]
+    if clean_size not in _ISO_DATA:
+        # Fallback logic? No, structural bolts must be exact.
+        available = ", ".join(_ISO_DATA.keys())
+        raise ValueError(f"Thread '{size}' not found in ISO Coarse DB. Available: {available}")
+    
+    # Unpack tuple
+    p, area, _, _ = _ISO_DATA[clean_size]
+    
+    # Extract diameter from name "M20" -> 20.0
+    d_nom = float(clean_size[1:])
+    
     return MetricThread(
-        name=size,
-        nominal_dia=float(size[1:]) * ureg.mm, # Extracts '6' from 'M6'
-        pitch=data["p"] * ureg.mm,
-        pitch_dia=data["d2"] * ureg.mm,
-        minor_dia=data["d3"] * ureg.mm
+        name=clean_size,
+        nominal_dia=d_nom * ureg.mm,
+        pitch=p * ureg.mm,
+        stress_area=area * ureg.mm**2
     )
 
 def get_hex_head(size: str) -> HexHead:
-    if size not in _HEADS_DB:
-        raise ValueError(f"Head '{size}' not found.")
-    data = _HEADS_DB[size]
+    clean_size = size.split('x')[0].upper()
+    if clean_size not in _ISO_DATA:
+        raise ValueError(f"Head dimensions for '{size}' not found.")
+        
+    _, _, s, k = _ISO_DATA[clean_size]
     return HexHead(
-        width_flats=data["s"] * ureg.mm,
-        width_corners=data["e"] * ureg.mm,
-        height=data["k"] * ureg.mm
+        width_flats=s * ureg.mm,
+        height=k * ureg.mm
     )

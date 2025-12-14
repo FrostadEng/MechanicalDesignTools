@@ -7,36 +7,43 @@ A mechanical engineering calculation library with clear separation between **ana
 ```
 mech_core/
 ├── __init__.py
-├── units.py               # Pint unit registry for dimensional analysis
 │
-├── analysis/              # THE SOLVERS (Math & Calculations)
+├── analysis/              # THE SOLVERS (Pure Physics - Code Agnostic)
 │   ├── __init__.py
-│   ├── beams.py          # Beam bending & LTB (AISC 360-16) - strong/weak axis
-│   ├── columns.py        # Column compression & buckling (AISC 360-16) - with BC mapping
-│   ├── base_plate.py     # Base plate design (CSA S16) - bearing & anchor bolts
-│   ├── bolted_joint.py   # Bolted joint analysis (VDI 2230)
-│   ├── rigid_body.py     # Robot payload calculations
-│   ├── safety.py         # Laser safety (MPE/NOHD)
-│   └── fluids.py         # Assist gas calculations
+│   └── fea.py            # FEA wrapper (PyNite integration)
 │
-├── components/           # THE OBJECTS (Engineering Components)
+├── codes/                 # CODE-SPECIFIC VALIDATORS
+│   └── structural/
+│       └── csa_s16/
+│           ├── members.py      # Beam & column design (CSA S16-19)
+│           └── connections.py  # Connection validation (bolt shear, bearing, block shear)
+│
+├── components/           # THE OBJECTS (Physical Engineering Components)
 │   ├── __init__.py
 │   ├── fastener.py       # Fastener objects
-│   └── aisc_members.py   # AISC steel sections (database, properties, queries)
+│   ├── members/
+│   │   ├── __init__.py
+│   │   └── aisc.py       # AISC steel sections (database & queries)
+│   └── connections/
+│       ├── axial/
+│       │   └── base_plate.py  # Base plate component
+│       └── shear/
+│           └── fin_plate.py   # Fin plate shear connection
 │
 └── standards/            # THE DATA (Lookup Tables & Standards)
     ├── __init__.py
+    ├── units.py          # Pint unit registry for dimensional analysis
     │
     ├── fasteners/        # Fastener specifications
     │   ├── __init__.py
-    │   └── iso_metric.py # ISO metric bolts/threads
+    │   ├── geometry.py   # Thread & head dimensions
+    │   └── materials.py  # Bolt material properties
     │
     ├── materials/        # Material properties (modular architecture)
     │   ├── __init__.py           # Unified materials API
     │   ├── steel.py              # Structural steel physics (ASTM/CSA)
     │   ├── concrete.py           # Concrete material properties
     │   ├── inventory.py          # Stock thickness manager (singleton)
-    │   ├── common_steels.py      # General steels
     │   └── data/
     │       ├── aisc_shapes.json         # AISC steel shapes database v16.0
     │       └── standard_thicknesses.json # Plate/sheet stock sizes
@@ -48,92 +55,60 @@ mech_core/
 
 ## Philosophy
 
-### analysis/ - The Solvers
-Contains the mathematical logic and computational methods:
-- Calculate forces, stresses, safety factors
-- Solve equations
-- Run simulations
-- The "scribbles on paper" that you'd do by hand
+### analysis/ - Pure Physics Solvers
+Contains code-agnostic mathematical solvers:
+- FEA integration (PyNite wrapper)
+- General mechanics equations
+- Physics-based calculations independent of design codes
+
+### codes/ - Code-Specific Validators
+Design code validators (CSA S16, future AISC, Eurocode):
+- Interprets design codes and standards
+- Applies safety factors and resistance factors
+- Returns pass/fail with utilization ratios
+- Generates symbolic calculation traces
+
+### components/ - Physical Objects
+Engineering components with geometry only:
+- Store dimensions and properties
+- Calculate geometric values (areas, distances)
+- Delegate validation to code layers
+- No "pass/fail" logic - that's the code's job
 
 ### standards/ - The Data
-Contains reference data from handbooks and specifications:
-- Thread dimensions (ISO 68-1)
-- Bolt strength grades (ISO 898-1)
-- Material properties (ASTM, AISI)
+Reference data from handbooks and specifications:
+- Thread dimensions (ISO metric)
+- Bolt strength grades
+- Material properties (ASTM, CSA)
+- Stock thickness inventory
 - Lookup tables and constants
 - No calculations, just data
 
 ## Usage Examples
 
-### Example 1: Using Standards Data Only
+### Example 1: Creating a Standard Bolt
 
 ```python
-from mech_core.standards.fasteners import iso_metric
-from mech_core.standards.materials import common_steels
+from mech_core.components.fastener import create_standard_bolt
+from mech_core.standards.units import ureg
 
-# Get thread dimensions
-thread = iso_metric.get_thread_info("M12")
-print(f"M12 pitch: {thread['pitch']} mm")
+# Create a standard metric bolt
+bolt = create_standard_bolt("M12", "8.8")
 
-# Get bolt strength
-proof_load = iso_metric.get_proof_load("M12", "8.8")
-print(f"Proof load: {proof_load / 1000:.1f} kN")
-
-# Get material properties
-steel = common_steels.get_material("A36")
-print(f"Yield strength: {steel.yield_strength} MPa")
+print(f"Thread pitch: {bolt.thread.pitch}")
+print(f"Stress area: {bolt.thread.stress_area}")
+print(f"Proof load: {bolt.proof_load.to(ureg.kN)}")
+print(f"Shear capacity: {bolt.shear_capacity.to(ureg.kN)}")
 ```
 
-### Example 2: Combining Standards + Analysis
+### Example 2: Structural Steel Design with Reporting
 
 ```python
-from mech_core.standards.fasteners import iso_metric
-from mech_core.standards.materials import common_steels
-from mech_core.analysis.bolted_joint import (
-    BoltedJoint,
-    BoltedJointGeometry,
-    BoltedJointMaterials
-)
-
-# Get DATA from standards
-stress_area = iso_metric.get_stress_area("M12")
-steel = common_steels.get_material("A36")
-bolt_props = iso_metric.ISO_PROPERTY_CLASSES["8.8"]
-
-# Define geometry
-geometry = BoltedJointGeometry(
-    bolt_diameter=12.0,
-    thread_pitch=1.75,
-    grip_length=40.0,
-    head_diameter=18.0,
-    through_hole_diameter=13.0
-)
-
-# Define materials (using standards data)
-materials = BoltedJointMaterials(
-    bolt_modulus=200,
-    member_modulus=steel.elastic_modulus,
-    bolt_yield=bolt_props['proof_stress']
-)
-
-# Run ANALYSIS (the solver)
-joint = BoltedJoint(geometry, materials, stress_area)
-results = joint.analyze_external_load(
-    preload=30000,      # N
-    external_load=10000  # N
-)
-
-print(f"Safety factor: {results['yield_safety']:.2f}")
-```
-
-### Example 3: Structural Steel Design with Reporting
-
-```python
-from mech_core.units import ureg
-from mech_core.components.aisc_members import get_section, get_shapes_by_type
+from mech_core.standards.units import ureg
+from mech_core.components.members.aisc import get_section, get_shapes_by_type
 from mech_core.standards.materials import get_material, get_concrete, stock
-from mech_core.analysis.columns import calculate_compressive_strength
-from mech_core.analysis.base_plate import BasePlateDesign
+from mech_core.codes.structural.csa_s16.members import check_compressive_resistance
+from mech_core.components.connections.axial.base_plate import BasePlateDesign
 from mech_core.standards.reporting.generator import ReportGenerator
 
 # Initialize report
@@ -149,15 +124,15 @@ w_shapes = get_shapes_by_type("W", sort_by="W")  # All W-shapes, sorted by weigh
 column_height = 3.0 * ureg.meter
 required_capacity = 100 * ureg.kN
 
-# Find lightest adequate column (the solver)
+# Find lightest adequate column (the validator)
 for shape_name in w_shapes:
     section = get_section(shape_name)
-    result = calculate_compressive_strength(
+    result = check_compressive_resistance(
         section, steel, column_height,
         ["pinned", "pinned"]  # Boundary conditions
     )
 
-    if result['Pu_capacity'] >= required_capacity:
+    if result['Cr'] >= required_capacity:
         print(f"Selected: {shape_name}")
         report.add_calculation_result(f"Column: {shape_name}", result, "PASS")
 
@@ -175,44 +150,38 @@ for shape_name in w_shapes:
 report.save("Column_Design.md")
 ```
 
-### Example 4: Laser Safety Calculation
-
-```python
-from mech_core.analysis.safety import LaserBeam, calculate_nohd
-
-# Define laser (the data)
-laser = LaserBeam(
-    power=100,        # Watts
-    wavelength=1064,  # nm (Nd:YAG)
-    beam_diameter=5,  # mm
-    divergence=1.0    # mrad
-)
-
-# Run calculation (the solver)
-nohd = calculate_nohd(laser)
-print(f"Nominal Ocular Hazard Distance: {nohd:.1f} m")
-```
-
 ## Available Modules
 
-### analysis/beams.py
-- `calculate_bending_capacity()` - Flexural design per AISC 360-16 Chapter F
-- Strong axis (X-X) and weak axis (Y-Y) bending
-- Yielding limit state (Mp = Fy * Z)
-- Lateral-torsional buckling (LTB) zones 1, 2, 3 for strong axis
-- LRFD moment capacity (φMn)
-- `generate_markdown()` - Report generation
+### analysis/fea.py
+- `FrameAnalysis` - PyNite FEA wrapper for 3D frame analysis
+- `add_node()`, `add_beam()` - Build frame geometry
+- `add_support()` - Define boundary conditions (pinned, fixed, roller)
+- `add_member_dist_load()` - Apply distributed loads
+- `solve()` - Run FEA solver
+- `get_beam_forces()` - Extract shear, moment, axial forces
+- `generate_diagrams()` - Create shear/moment diagrams
 
-### analysis/columns.py
-- `calculate_compressive_strength()` - Compression design per AISC 360-16 Chapter E
-- Boundary condition mapping (string-based: `["pinned", "pinned"]`, `["fixed", "free"]`)
-- Slenderness ratio (KL/r)
-- Elastic vs inelastic buckling modes
-- LRFD capacity (φPn)
-- `generate_markdown()` - Report generation
+### codes/structural/csa_s16/members.py
+- `check_compressive_resistance()` - Column design per CSA S16-19 Chapter E
+  - Boundary condition mapping (`["pinned", "pinned"]`, `["fixed", "free"]`)
+  - Slenderness ratio (KL/r)
+  - Elastic vs inelastic buckling modes
+  - Returns `Cr` (factored compressive resistance)
+- `check_flexural_resistance()` - Beam design per CSA S16-19 Chapter F
+  - Strong axis (X-X) and weak axis (Y-Y) bending
+  - Yielding limit state (Mp = Fy * Z)
+  - Lateral-torsional buckling (LTB) for strong axis
+  - Returns `Mr` (factored moment resistance)
+- All functions return `calc_trace` with symbolic LaTeX derivations
 
-### analysis/base_plate.py
-- `BasePlateDesign` - Base plate design per CSA S16
+### codes/structural/csa_s16/connections.py
+- `check_bolt_shear()` - Bolt shear resistance per CSA S16-19
+- `check_bearing()` - Bearing resistance on plates/webs
+- `check_block_shear()` - Block shear rupture (uses Agv for yield, Anv for rupture)
+- Returns utilization ratios and calc_trace
+
+### components/connections/axial/base_plate.py
+- `BasePlateDesign` - Base plate design component
 - Bearing pressure on concrete (CSA A23.3)
 - Required thickness calculation
 - Standard thickness selection from inventory
@@ -220,37 +189,14 @@ print(f"Nominal Ocular Hazard Distance: {nohd:.1f} m")
 - Edge distance and spacing checks
 - `generate_markdown()` - Integrated reporting
 
-### analysis/bolted_joint.py
-- `BoltedJoint` - Joint stiffness analysis
-- `BoltedJointGeometry` - Geometry definition
-- `BoltedJointMaterials` - Material properties
-- `calculate_bearing_stress()` - Bearing calculations
-- `calculate_shear_stress()` - Shear calculations
-- `eccentric_shear_load()` - Eccentric loading
+### components/connections/shear/fin_plate.py
+- `FinPlateConnection` - Fin plate shear connection component
+- Calculates geometric properties (net areas, edge distances)
+- `analyze()` - Validates connection against design code
+- Delegates to CSA S16 validators (bolt shear, bearing, block shear)
+- Returns combined calc_trace and individual check results
 
-### analysis/rigid_body.py
-- `RigidBody` - Mass properties and moments
-- `combine_rigid_bodies()` - Combine multiple bodies
-- Robot payload analysis
-
-### analysis/safety.py
-- `LaserBeam` - Laser beam properties
-- `calculate_mpe()` - Maximum Permissible Exposure
-- `calculate_nohd()` - Nominal Ocular Hazard Distance
-
-### analysis/fluids.py
-- `reynolds_number()` - Reynolds number calculation
-- `pressure_drop_pipe()` - Darcy-Weisbach pressure drop
-- `nozzle_flow_rate()` - Compressible flow through nozzle
-
-### standards/fasteners/iso_metric.py
-- `ISO_METRIC_THREADS` - Thread dimensions (ISO 68-1)
-- `ISO_PROPERTY_CLASSES` - Bolt grades (ISO 898-1)
-- `get_stress_area()` - Thread stress area
-- `get_proof_load()` - Bolt proof load
-- `get_recommended_torque()` - Assembly torque
-
-### components/aisc_members.py
+### components/members/aisc.py
 - `SectionProperties` - AISC section property class with automatic unit scaling
 - `get_section()` - Retrieve section by name (e.g., "W12X26", "C8X18.75")
 - `get_shapes_by_type()` - Get all shapes of a type (W, C, L, HSS, etc.)
@@ -258,6 +204,16 @@ print(f"Nominal Ocular Hazard Distance: {nohd:.1f} m")
 - `get_lightest_shape()` - Find most economical section meeting criteria
 - `get_available_types()` - List all shape types in database
 - `search_shapes()` - Search by name pattern
+
+### components/fastener.py
+- `Bolt` - Bolt component (thread + head + material)
+- `create_standard_bolt()` - Factory for standard metric bolts
+- `proof_load`, `shear_capacity` - Calculated properties
+
+### standards/fasteners/geometry.py & materials.py
+- `get_metric_thread()` - Thread dimensions (ISO 68-1)
+- `get_hex_head()` - Hex head dimensions
+- `get_iso_property_class()` - Bolt material properties (ISO 898-1)
 
 ### standards/materials/ (Modular Architecture)
 **Unified API through `__init__.py`:**
@@ -311,24 +267,26 @@ def calculate_deflection(load, length, modulus, moment_of_inertia):
     return deflection
 ```
 
-## Running the Demo
+## Running the Examples
 
 ```bash
 cd engineering_tools
-python demo_bolted_joint.py
+python projects/mezzanine_design/design_mezzanine.py
 ```
 
 This demonstrates the complete workflow:
-1. Get thread data from ISO standards
-2. Get material properties
-3. Define joint geometry
-4. Run bolted joint analysis
-5. Calculate safety factors
+1. Define design loads and materials
+2. Select AISC sections from database
+3. Run FEA analysis to get internal forces
+4. Validate members using CSA S16 code checks
+5. Design connections (fin plates, base plates)
+6. Generate professional calculation package with symbolic derivations
 
 ## References
 
-- ISO 68-1: Basic profile of metric threads
-- ISO 898-1: Mechanical properties of fasteners
-- VDI 2230: Systematic calculation of bolted joints
-- ANSI Z136.1: Laser safety standards
-- Shigley's Mechanical Engineering Design
+- **CSA S16-19**: Design of Steel Structures (Canadian Standard)
+- **AISC 360-16**: Specification for Structural Steel Buildings
+- **CSA A23.3**: Design of Concrete Structures
+- **ISO 68-1**: Basic profile of metric threads
+- **ISO 898-1**: Mechanical properties of fasteners
+- **AISC Database v16.0**: Steel section properties (metric)

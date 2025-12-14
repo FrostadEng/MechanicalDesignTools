@@ -3,7 +3,7 @@ mech_core/standards/materials/steel.py
 Structural steel material definitions (ASTM/CSA grades).
 """
 from dataclasses import dataclass
-from ...units import ureg, Q_
+from ..units import ureg, Q_
 
 @dataclass(frozen=True)
 class StructuralMaterial:

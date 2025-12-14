@@ -6,10 +6,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, "../../"))
 sys.path.insert(0, repo_root)
 
-from mech_core.units import ureg
-from mech_core.components.aisc_members import get_section
+from mech_core.standards.units import ureg
+from mech_core.components.members.aisc import get_section
 from mech_core.standards.materials import get_material
-from mech_core.analysis.columns import calculate_compressive_strength
+from mech_core.codes.structural.csa_s16.members import check_compressive_resistance
 
 def run_design():
     print("=== Mezzanine Column Design ===\n")
@@ -47,7 +47,7 @@ def run_design():
             # But for a "Table", K=2.0 (Cantilever) if unbraced, or K=1.0 if cross-braced.
             # Let's assume cross-braced (K=1.0).
             
-            result = calculate_compressive_strength(section, steel, column_height, ["pinned", "pinned"])
+            result = check_compressive_resistance(section, steel, column_height, ["pinned", "pinned"])
             
             capacity = result['Pu_capacity']
             slenderness = result['slenderness']
@@ -64,7 +64,7 @@ def run_design():
     print("\nDetailed Report for W4X13:")
     # Detailed look at one
     s = get_section("W4X13")
-    res = calculate_compressive_strength(s, steel, column_height)
+    res = check_compressive_resistance(s, steel, column_height)
     print(f"Mode: {res['failure_mode']}")
     print(f"Critical Stress Fcr: {res['Fcr']}")
     print(f"Governing Axis: {res['governing_axis']}")

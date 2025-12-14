@@ -5,8 +5,8 @@ Frame analysis wrapper for PyNiteFEA integration with AISC library.
 from Pynite import FEModel3D
 import matplotlib.pyplot as plt
 import numpy as np
-from ..units import ureg, Q_
-from ..components.aisc_members import SectionProperties
+from ..standards.units import ureg, Q_
+from ..components.members.aisc import SectionProperties
 from ..standards.materials import StructuralMaterial
 
 
@@ -18,8 +18,8 @@ class FrameAnalysis:
     including correct axis transformations (Ix -> Iz for PyNite).
 
     Example:
-        >>> from mech_core.units import ureg
-        >>> from mech_core.components.aisc_members import get_section
+        >>> from mech_core.standards.units import ureg
+        >>> from mech_core.components.members.aisc import get_section
         >>> from mech_core.standards.materials import get_material
         >>> from mech_core.analysis.fea import FrameAnalysis
         >>>

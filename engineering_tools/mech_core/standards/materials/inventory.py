@@ -4,7 +4,7 @@ Material stock and thickness availability management.
 """
 from pathlib import Path
 import json
-from ...units import ureg, Q_
+from ..units import ureg, Q_
 
 class MaterialStockManager:
     """

@@ -1,6 +1,6 @@
 # Mezzanine Structural Design
 
-**Author:** Carter Frostad | **Date:** 2025-12-13 | **Ver:** 1.0
+**Author:** Carter Frostad | **Date:** 2025-12-14 | **Ver:** 1.0
 
 ---
 
@@ -13,6 +13,8 @@ Design based on CSA S16 (LSD). Loads extracted from NBCC 2020.
 ## Beam Selection (FEA Verified)
 
 Selected **C8X18.75** based on FEA results.
+
+**Max Factored Shear (Vf):** 29.43 kN
 
 ![Shear and Moment Diagrams](beam_diagrams.png)
 *Shear and Moment Diagrams*
@@ -180,7 +182,7 @@ F_{cr} = 0.877 (112.02) \\
 \rightarrow \mathbf{98.24 \text{ MPa}}
 $$
 
-> *Capacity is reduced to 87.7% of the theoretical Euler stress to account for initial crookedness.*
+> *Capacity is reduced to 87.7% of the theoretical Euler stress.*
 
 
 **6. Nominal Compressive Strength** *[AISC Eq. E3-1]*
@@ -212,12 +214,139 @@ $$
 | Pn | 160.14 | kN |
 | Pu_capacity | 144.12 | kN |
 | Fcr | 98.24 | MPa |
-| slenderness | 132.74 | - |
+| slenderness | 132.74 |  |
 | limit_slenderness | 112.59 | - |
 | failure_mode | Elastic Buckling | - |
 | governing_axis | Y-Y | - |
 | k_factor | 1.00 | - |
 | boundary_conditions | ['pinned', 'pinned'] | - |
+
+## Beam-to-Column Connection
+
+Designing shear tab for **C8X18.75** connecting to **W6X8.5**.
+
+**Design Shear Force (Vf):** 29.43 kN
+
+### Check 1: Bolt Shear
+
+**1. Bolt Parameters**
+
+$$
+\begin{aligned}
+d_b = 20.0 \text{ mm} & \quad Grade: 8.8 \\
+F_{ub} = 800 \text{ MPa} & \quad n = 2 \\
+V_f = 29.43 \text{ kN} & \quad  \\
+\end{aligned}
+$$
+
+> *Parameters established for shear check.*
+
+
+**2. Bolt Area**
+
+$$
+A_b = \frac{\pi d_b^2}{4} \\
+A_b = \frac{\pi (20.0)^2}{4} \\
+\rightarrow \mathbf{314.2 \text{ mm}^2}
+$$
+
+
+
+**3. Factored Shear Resistance (Per Bolt)** *[CSA S16 Cl. 13.11.2]*
+
+$$
+V_r = 0.60 \phi_b A_b F_{ub} m \\
+V_r = 0.60(0.80)(314)(800)(1)(10^{-3}) \\
+\rightarrow \mathbf{120.64 \text{ kN/bolt}}
+$$
+
+> *Capacity per bolt in single shear.*
+
+
+**4. Total Shear Resistance**
+
+$$
+V_{r,total} = n \cdot V_r \\
+V_{r,total} = 2 \cdot 120.64 \\
+\rightarrow \mathbf{\mathbf{241.27 \text{ kN}}}
+$$
+
+
+
+**5. Check Utilization**
+
+$$
+\frac{V_f}{V_r} \le 1.0 \\
+29.43 / 241.27 = 0.122 \\
+\rightarrow \mathbf{PASS}
+$$
+
+> *The bolts pass in shear.*
+
+
+### Check 2: Bearing
+
+**1. Bearing Parameters (Fin Plate)**
+
+$$
+\begin{aligned}
+t = 10.0 \text{ mm} & \quad d_b = 20.0 \text{ mm} \\
+F_u = 400 \text{ MPa} & \quad V_f = 14.71 \text{ kN} \\
+\end{aligned}
+$$
+
+> *Material properties for the Fin Plate.*
+
+
+**2. Factored Bearing Resistance** *[CSA S16 Cl. 13.12.1.2]*
+
+$$
+B_r = 3 \phi_{br} t d F_u \\
+B_r = 3(0.80)(10.0)(20.0)(400) 10^{-3} \\
+\rightarrow \mathbf{\mathbf{192.00 \text{ kN}}}
+$$
+
+> *Maximum load before bolt tears through material (Bearing limit).*
+
+
+**3. Check Utilization**
+
+$$
+\frac{V_f}{B_r} \le 1.0 \\
+14.71 / 192.00 = 0.077 \\
+\rightarrow \mathbf{PASS}
+$$
+
+
+
+### Check 3: Block Shear Rupture
+
+**Block Shear Geometry**
+
+$$
+\begin{aligned}
+A_{gv} = 1364 \text{ mm}^2 & \quad A_{nv} = 955 \text{ mm}^2 \\
+A_{nt} = 360 \text{ mm}^2 & \quad U_{bs} = 1.0 \\
+\end{aligned}
+$$
+
+> *Areas calculated based on bolt layout.*
+
+
+**Block Shear Capacity** *[CSA S16 13.11 / AISC J4.3]*
+
+$$
+T_r = \phi_u [ \min(0.6 F_u A_{nv}, 0.6 F_y A_{gv}) + U_{bs} F_u A_{nt} ] \\
+T_r = 0.75 [ \min(229152, 204600) + 143840 ] 10^{-3} \\
+\rightarrow \mathbf{261.33 \text{ kN}}
+$$
+
+> *Resistance (261.3 kN) vs Load (29.4 kN) -> PASS*
+
+
+> **Overall Connection Status:** ✅ PASS
+
+> **Critical Mode:** Bolt Shear (0.12)
 
 ## Base Plate Design
 

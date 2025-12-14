@@ -47,27 +47,35 @@ A Python-based engineering toolset for structural steel design calculations foll
 MechanicalDesignTools/
 ├── engineering_tools/
 │   ├── mech_core/                 # Core engineering modules
-│   │   ├── analysis/              # Structural analysis modules
-│   │   │   ├── beams.py          # Beam bending (strong/weak axis, LTB)
-│   │   │   ├── columns.py        # Column compression with boundary conditions
-│   │   │   ├── base_plate.py     # Base plate design & anchor bolts
+│   │   ├── analysis/              # Pure physics solvers (code-agnostic)
 │   │   │   └── fea.py            # FEA wrapper (PyNite integration)
-│   │   ├── components/           # Engineering components & objects
+│   │   ├── codes/                 # Code-specific validators
+│   │   │   └── structural/
+│   │   │       └── csa_s16/
+│   │   │           ├── members.py      # Beam & column design (CSA S16-19)
+│   │   │           └── connections.py  # Connection validation
+│   │   ├── components/           # Physical objects (geometry only)
 │   │   │   ├── fastener.py       # Fastener objects
-│   │   │   └── aisc_members.py   # AISC steel sections (database & queries)
-│   │   ├── standards/            # Standards & material databases
-│   │   │   ├── materials/
-│   │   │   │   ├── data/
-│   │   │   │   │   ├── aisc_shapes.json         # AISC shapes database
-│   │   │   │   │   └── standard_thicknesses.json # Stock plate/sheet sizes
-│   │   │   │   ├── steel.py          # Structural steel properties
-│   │   │   │   ├── concrete.py       # Concrete materials
-│   │   │   │   ├── inventory.py      # Stock thickness manager
-│   │   │   │   └── __init__.py       # Unified materials API
-│   │   │   ├── reporting/
-│   │   │   │   └── generator.py      # Markdown report generator with LaTeX
-│   │   │   └── fasteners/        # Fastener standards
-│   │   └── units.py              # Pint unit registry
+│   │   │   ├── members/
+│   │   │   │   └── aisc.py       # AISC steel sections (database & queries)
+│   │   │   └── connections/
+│   │   │       ├── axial/
+│   │   │       │   └── base_plate.py  # Base plate component
+│   │   │       └── shear/
+│   │   │           └── fin_plate.py   # Fin plate shear connection
+│   │   └── standards/            # Standards & reference data
+│   │       ├── units.py          # Pint unit registry
+│   │       ├── materials/
+│   │       │   ├── data/
+│   │       │   │   ├── aisc_shapes.json         # AISC shapes database
+│   │       │   │   └── standard_thicknesses.json # Stock plate/sheet sizes
+│   │       │   ├── steel.py          # Structural steel properties
+│   │       │   ├── concrete.py       # Concrete materials
+│   │       │   ├── inventory.py      # Stock thickness manager
+│   │       │   └── __init__.py       # Unified materials API
+│   │       ├── reporting/
+│   │       │   └── generator.py      # Markdown report generator with LaTeX
+│   │       └── fasteners/        # Fastener standards
 │   └── projects/                 # Design project examples
 │       ├── mezzanine_design/
 │       │   ├── design_mezzanine.py          # Full structural design with FEA
@@ -101,13 +109,12 @@ pip install -r engineering_tools/requirements.txt
 ### Example: Designing a Mezzanine Structure with FEA
 
 ```python
-from mech_core.units import ureg
-from mech_core.components.aisc_members import get_section, get_shapes_by_type
+from mech_core.standards.units import ureg
+from mech_core.components.members.aisc import get_section, get_shapes_by_type
 from mech_core.standards.materials import get_material, get_concrete
 from mech_core.analysis.fea import FrameAnalysis
-from mech_core.analysis.columns import calculate_compressive_strength
-from mech_core.analysis.beams import calculate_bending_capacity
-from mech_core.analysis.base_plate import BasePlateDesign
+from mech_core.codes.structural.csa_s16.members import check_compressive_resistance, check_flexural_resistance
+from mech_core.components.connections.axial.base_plate import BasePlateDesign
 from mech_core.standards.reporting.generator import ReportGenerator
 
 # Initialize report
@@ -144,8 +151,8 @@ for beam_name in beam_candidates:
                 abs(forces['min_moment_z'].magnitude)) * ureg.kN * ureg.meter
 
     # Check capacity with symbolic trace
-    result = calculate_bending_capacity(section, steel, unbraced_length=4.0*ureg.meter)
-    if result['Mu_capacity'] >= M_fea:
+    result = check_flexural_resistance(section, steel, unbraced_length=4.0*ureg.meter)
+    if result['Mr'] >= M_fea:
         print(f"Selected beam: {beam_name}")
 
         # Generate diagrams
@@ -194,30 +201,42 @@ python projects/mezzanine_design/design_mezzanine.py
 - **Diagram generation** (shear/moment plots with matplotlib)
 - Seamless Pint unit handling throughout
 
-### `mech_core.analysis.columns`
-Column design per AISC 360-16 Chapter E (Compression Members)
-- Boundary condition mapping (`["pinned", "pinned"]`, `["fixed", "free"]`, etc.)
-- Slenderness ratio calculation (KL/r)
-- Elastic vs inelastic buckling modes
-- LRFD capacity (φPn)
-- Symbolic derivation traces (`calc_trace` with LaTeX equations)
-
-### `mech_core.analysis.beams`
-Beam design per AISC 360-16 Chapter F (Flexural Members)
-- Strong axis (X-X) and weak axis (Y-Y) bending
-- Yielding limit state (Mp = Fy * Z)
-- Lateral-torsional buckling (LTB) for strong axis
-- LRFD moment capacity (φMn)
+### `mech_core.codes.structural.csa_s16.members`
+Member design per CSA S16-19 (based on AISC 360-16 principles)
+- `check_compressive_resistance()` - Column design (Chapter E)
+  - Boundary condition mapping (`["pinned", "pinned"]`, `["fixed", "free"]`, etc.)
+  - Slenderness ratio calculation (KL/r)
+  - Elastic vs inelastic buckling modes
+  - LRFD capacity (φPn)
+- `check_flexural_resistance()` - Beam design (Chapter F)
+  - Strong axis (X-X) and weak axis (Y-Y) bending
+  - Yielding limit state (Mp = Fy * Z)
+  - Lateral-torsional buckling (LTB) for strong axis
+  - LRFD moment capacity (φMn)
 - **Symbolic derivation traces** (`calc_trace` with step-by-step LaTeX)
 
-### `mech_core.analysis.base_plate`
-Base plate design per CSA S16
+### `mech_core.codes.structural.csa_s16.connections`
+Connection design validators per CSA S16-19
+- `check_bolt_shear()` - Bolt shear resistance
+- `check_bearing()` - Bearing resistance on plates/webs
+- `check_block_shear()` - Block shear rupture (shear + tension)
+- All functions return calc_trace for documentation
+
+### `mech_core.components.connections.axial.base_plate`
+Base plate design component per CSA S16
 - Bearing pressure on concrete
 - Required plate thickness calculation
 - Standard thickness selection from inventory
 - Anchor bolt layout (4-bolt pattern)
 - Edge distance and spacing checks
 - Integrated markdown reporting
+
+### `mech_core.components.connections.shear.fin_plate`
+Fin plate shear connection component
+- Geometric property calculation (net areas, edge distances)
+- Delegates validation to CSA S16 connection validators
+- Combined reporting with bolt shear, bearing, and block shear checks
+- Returns detailed calc_trace for each failure mode
 
 ### `mech_core.standards.materials`
 Material property management with separation of concerns:
@@ -235,7 +254,7 @@ Professional calculation package generation:
 - Automatic formatting for results
 - Export to .md files for documentation
 
-### `mech_core.components.aisc_members`
+### `mech_core.components.members.aisc`
 AISC steel section database and query utilities:
 - `get_section()` - Retrieve section by name
 - `get_shapes_by_type()` - Get all shapes of a type

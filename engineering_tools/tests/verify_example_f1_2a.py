@@ -6,10 +6,10 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 repo_root = os.path.abspath(os.path.join(current_dir, "../"))
 sys.path.insert(0, repo_root)
 
-from mech_core.units import ureg
-from mech_core.components.aisc_members import get_section
+from mech_core.standards.units import ureg
+from mech_core.components.members.aisc import get_section
 from mech_core.standards.materials import get_material
-from mech_core.analysis.beams import calculate_bending_capacity
+from mech_core.codes.structural.csa_s16.members import check_flexural_resistance
 
 def verify_example_f1_2a():
     print("=== Verifying AISC Example F.1-2A ===")
@@ -37,7 +37,7 @@ def verify_example_f1_2a():
     Cb = 1.0 
 
     # 3. RUN CALCULATION
-    res = calculate_bending_capacity(section, steel, Lb, cb=Cb)
+    res = check_flexural_resistance(section, steel, Lb, cb=Cb)
     
     # 4. COMPARE
     phi_Mn = res['Mu_capacity'].to(ureg.kip * ureg.ft)
