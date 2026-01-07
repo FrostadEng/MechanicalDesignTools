@@ -1,0 +1,18 @@
+{
+    "model": "IPG YYL 4kW + Precitec ProCutter",
+    "type": "LASER",
+    "mass_kg": 12.5,
+    "specs": {
+        "power_kw": 4.0,
+        "efficiency_optical": 0.45,
+        "tcp_offset_mm": [0.0, 0.0, -185.0]
+    },
+    "process_defaults": {
+        "kerf_width_mm": 0.45,
+        "fly_cut_enabled": true,
+        "gas_pressure_bar": 100.0,
+        "nozzle_diameter_mm": 10.0,
+        "gas_gamma": 1.4,
+        "efficiency_factor": 1.0
+    }
+}

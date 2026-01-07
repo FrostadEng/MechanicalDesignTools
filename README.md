@@ -1,8 +1,12 @@
 # Mechanical Design Tools
 
-A Python-based engineering toolset for structural steel design calculations following AISC 360-16 standards with full unit handling using Pint.
+A comprehensive Python-based engineering platform with two main components:
+1. **mech_core**: Structural steel design calculations following AISC 360-16 standards with full unit handling
+2. **simulation**: Discrete-event simulation framework for manufacturing operations leveraging mech_core physics
 
 ## Features
+
+### mech_core: Structural Design & Analysis
 
 - **Structural Analysis**
   - Column design (AISC 360-16 compression with boundary condition mapping)
@@ -26,6 +30,7 @@ A Python-based engineering toolset for structural steel design calculations foll
 - **Material Management**
   - Structural steel properties (ASTM A36, A992, CSA G40.21)
   - Concrete materials (configurable fc')
+  - Physics calculations (specific melting energy for thermal cutting)
   - Stock thickness availability system
   - Standard plate and sheet thickness lookups
 
@@ -41,14 +46,54 @@ A Python-based engineering toolset for structural steel design calculations foll
   - Automatic unit conversions
   - Prevents unit-related errors
 
+### simulation: Manufacturing Process Simulation
+
+- **Discrete-Event Simulation Framework**
+  - Physics-based manufacturing operations modeling
+  - Event-driven architecture for complex machine interactions
+  - Hierarchical event logging for process analysis
+  - Resource utilization tracking and optimization
+
+- **Machine Modeling**
+  - Complete PCR41 laser/plasma cutting platform simulation
+  - Configurable robot arms (Fanuc M-710iC/50, KUKA models)
+  - Material handling systems (cross-transfer units)
+  - Linear indexing systems with physics-based motion profiles
+
+- **Physics-Aware Processing**
+  - Cutting speed calculations from mech_core material properties
+  - Dynamic robot payload derating based on tool mass
+  - Trapezoidal velocity profiles for realistic motion
+  - Energy density-based thermal cutting simulation
+
+- **NC Code Integration**
+  - DSTV (.nc1) parser for European CNC standard
+  - Feature extraction and intelligent grouping
+  - Optimized processing sequence generation
+  - Support for holes, cuts, and markings
+
+- **Manufacturing Tools**
+  - Fiber laser simulation (4kW IPG with fly-cutting)
+  - Plasma torch simulation (Hypertherm XPR300)
+  - Configurable end-of-arm tooling system
+  - Tool-specific operation sequences (IHS, pierce, cut)
+
+- **Visualization & Analysis**
+  - Gantt chart generation for resource utilization
+  - Throughput metrics (seconds per beam, utilization %)
+  - Steady-state filtering for accurate performance analysis
+  - Event hierarchy visualization
+
 ## Project Structure
 
 ```
 MechanicalDesignTools/
 ├── engineering_tools/
-│   ├── mech_core/                 # Core engineering modules
-│   │   ├── analysis/              # Pure physics solvers (code-agnostic)
-│   │   │   └── fea.py            # FEA wrapper (PyNite integration)
+│   ├── mech_core/                 # Structural design & analysis
+│   │   ├── analysis/              # Pure physics solvers
+│   │   │   ├── fea.py            # FEA wrapper (PyNite integration)
+│   │   │   ├── heat_transfer/    # Thermal cutting physics
+│   │   │   └── kinematics/       # Motion profile calculations
 │   │   ├── codes/                 # Code-specific validators
 │   │   │   └── structural/
 │   │   │       └── csa_s16/
@@ -76,12 +121,32 @@ MechanicalDesignTools/
 │   │       ├── reporting/
 │   │       │   └── generator.py      # Markdown report generator with LaTeX
 │   │       └── fasteners/        # Fastener standards
+│   │
+│   ├── simulation/               # Manufacturing simulation framework
+│   │   ├── core/                 # Core infrastructure & physics
+│   │   │   ├── machines/         # Concrete machine implementations
+│   │   │   │   ├── PCR41/        # Plasma/Fiber laser cutting platform
+│   │   │   │   │   ├── controller.py  # Main orchestration logic
+│   │   │   │   │   └── indexer.py     # Feature grouping & planning
+│   │   │   │   └── subsystems/   # Reusable mechanical components
+│   │   │   │       ├── robots/        # Robot arms (Fanuc, KUKA)
+│   │   │   │       ├── conveyors/     # Motion systems (indexers, transfer)
+│   │   │   │       ├── eoa_tools/     # End-of-arm tools (laser, plasma)
+│   │   │   │       ├── tooling/       # Workholding (clamps, fixtures)
+│   │   │   │       └── planning/      # NC code parsing (DSTV)
+│   │   │   ├── entities/         # Work objects (beams, parts)
+│   │   │   ├── logging/          # Event tracking for Gantt charts
+│   │   │   └── visualization/    # Charts and reports
+│   │   └── tests/              # tests for the simulation module functionality
+│   │       
+│   │
 │   └── projects/                 # Design project examples
 │       ├── mezzanine_design/
 │       │   ├── design_mezzanine.py          # Full structural design with FEA
 │       │   ├── Mezzanine_Calc_Package.md    # Generated calculation report
 │       │   └── beam_diagrams.png            # Auto-generated FEA diagrams
 │       └── test_fea_wrapper.py              # FEA integration tests
+│       └── PCR41_test/       # Reference implementation & test cases
 └── README.md
 ```
 
@@ -188,7 +253,87 @@ cd engineering_tools
 python projects/mezzanine_design/design_mezzanine.py
 ```
 
+### Example: Simulating a Manufacturing Process
+
+```python
+import simpy
+from mech_core.standards.units import ureg
+from simulation.core.machines.PCR41.controller import PCR41Controller
+from simulation.core.machines.subsystems.robots.robot_arm import RobotArm
+from simulation.core.machines.subsystems.conveyors.cross_transfer import CrossTransfer
+from simulation.core.machines.subsystems.conveyors.linear_actuator import LinearActuator, ConveyorSpecs
+from simulation.core.machines.subsystems.eoa_tools.fiber_laser import FiberLaser
+from simulation.core.machines.PCR41.indexer import Indexer
+from simulation.core.entities.beam import BeamEntity
+from simulation.core.machines.subsystems.planning.parsers.dstv import DSTVParser
+from simulation.core.logging.logger import EventLogger
+from simulation.core.visualization.gantt import GanttChart
+
+# Initialize simulation environment
+env = simpy.Environment()
+logger = EventLogger()
+
+# Configure hardware components
+cross_transfer = CrossTransfer(env, logger, num_units=3, capacity_per_unit=2000*ureg.kg)
+push_rod_specs = ConveyorSpecs(
+    length=18000*ureg.mm,
+    max_speed=800*ureg.mm/ureg.second,
+    acceleration=150*ureg.mm/ureg.second**2
+)
+push_rod = LinearActuator(env, logger, specs=push_rod_specs)
+robot = RobotArm(env, logger, config_file="fanuc_m710ic_50.json")
+tool = FiberLaser(env, logger)
+indexer = Indexer()
+
+# Load NC code and create work entity
+parser = DSTVParser("path/to/part.nc1")
+dstv_data = parser.parse()
+beam = BeamEntity.from_dstv(dstv_data)
+
+# Generate optimized processing plan
+processing_plan = indexer.generate_plan(dstv_data.features)
+
+# Create machine controller
+controller = PCR41Controller(
+    env=env,
+    logger=logger,
+    cross_transfer=cross_transfer,
+    push_rod=push_rod,
+    robot=robot,
+    tool=tool,
+    indexer=indexer
+)
+
+# Run simulation
+env.process(controller.process_beam(beam, processing_plan))
+env.run()
+
+# Analyze results
+chart = GanttChart(logger)
+chart.plot(
+    resources=["Robot", "CrossTransfer", "PushRod"],
+    output_file="throughput_analysis.png",
+    steady_state_start_cycle=2  # Skip startup transient
+)
+
+# Get metrics
+metrics = chart.calculate_metrics(
+    resources=["Robot"],
+    steady_state_start_cycle=2
+)
+print(f"Robot Utilization: {metrics['Robot']['utilization_pct']:.1f}%")
+print(f"Seconds per Beam: {metrics['Robot']['seconds_per_beam']:.2f}s")
+```
+
+Run the example:
+```bash
+cd engineering_tools
+python simulation/studies/PCR41_test/test_full_sequence.py
+```
+
 ## Core Modules
+
+### mech_core Modules
 
 ### `mech_core.analysis.fea`
 **NEW:** PyNite FEA wrapper for frame analysis
@@ -262,6 +407,105 @@ AISC steel section database and query utilities:
 - `get_lightest_shape()` - Find most economical section
 - `SectionProperties` - Section property class with automatic unit scaling
 
+### simulation Modules
+
+#### `simulation.core.machines.PCR41.controller`
+Main orchestration logic for the PCR41 cutting platform:
+- Coordinates material handling, indexing, and processing subsystems
+- Manages beam loading/unloading sequences
+- Directs robot and tool operations for each indexed position
+- Implements complete production cycle workflow
+
+#### `simulation.core.machines.PCR41.indexer`
+Feature grouping and motion optimization:
+- `generate_plan()` - Groups features by X-position within tolerance
+- Minimizes repositioning moves by clustering operations
+- Optimizes processing sequence from DSTV data
+- Returns indexed positions with associated feature lists
+
+#### `simulation.core.machines.subsystems.robots.robot_arm`
+Physics-aware robot arm simulation:
+- Configuration-driven from JSON (Fanuc M-710iC/50, KUKA models)
+- **Dynamic payload derating** - acceleration reduces with tool mass
+- Trapezoidal velocity profiles for realistic motion (from mech_core kinematics)
+- Motion types: rapid moves, linear interpolation, path following
+- Inversion of control pattern: robot hands itself to tools for orchestration
+
+#### `simulation.core.machines.subsystems.eoa_tools.fiber_laser`
+4kW IPG fiber laser simulation:
+- **Physics-based cutting speed** calculation from mech_core materials
+- Queries beam thickness and material grade from BeamEntity
+- Uses specific melting energy for energy density calculations
+- Fly-cutting approach with rapid moves between features
+- Mass: 12.5kg (minimal robot derating)
+
+#### `simulation.core.machines.subsystems.eoa_tools.plasma_torch`
+Hypertherm XPR300 plasma torch simulation:
+- Complex operation sequence: IHS (In-Height Sensing) + Pierce + Cut
+- Pierce delay: 0.7s, IHS time: 1.2s, retract distance: 75mm
+- **Physics-based cutting** using same energy density approach as laser
+- Mass: 32kg (significant robot payload derating)
+- Realistic manufacturing cycle times
+
+#### `simulation.core.machines.subsystems.conveyors.linear_actuator`
+Push rod feeder with physics-based motion:
+- Trapezoidal kinematics for smooth acceleration/deceleration
+- Accounts for beam mass and acceleration derating
+- Integrated clamping/unclamping logic
+- Configurable specs: length (18m), speed (800mm/s), acceleration (150mm/s²)
+
+#### `simulation.core.machines.subsystems.conveyors.cross_transfer`
+Multi-unit hydraulic transfer system:
+- 1-3 unit configuration with capacity checking (2000kg per unit)
+- Operations: Lift, Lower, Traverse with realistic timing
+- Load capacity validation against beam mass
+- Hierarchical event logging for process visibility
+
+#### `simulation.core.machines.subsystems.planning.parsers.dstv`
+DSTV (.nc1) NC code parser:
+- Parses European/German CNC standard format
+- Extracts: profile code, material grade, features (holes/cuts/marks)
+- Face designation mapping (v=web, o=top flange, u=bottom flange)
+- Returns `DSTVData` with aggregated metrics and feature lists
+
+#### `simulation.core.entities.beam`
+Physics-aware work entity:
+- `from_dstv()` - Hydrates from DSTV data
+- Loads AISC section geometry from mech_core database
+- Maps material grades to mech_core material properties
+- `get_thickness_at_feature()` - Returns web/flange thickness for cutting physics
+- Provides mass calculation for material handling validation
+
+#### `simulation.core.logging.logger`
+Hierarchical event tracking system:
+- Captures simulation events with start/end times
+- Supports nested event tracking (parent-child relationships)
+- Cycle tracking for throughput analysis
+- Query methods: by resource, cycle range, hierarchy level
+- Context-manager pattern for automatic event closure
+
+#### `simulation.core.visualization.gantt`
+Manufacturing throughput analysis and visualization:
+- Generates resource utilization Gantt charts (matplotlib)
+- Y-axis: resources (Robot, CrossTransfer, PushRod, etc.)
+- X-axis: simulation time with color-coded production cycles
+- Calculates metrics: utilization %, seconds per beam, total throughput
+- Steady-state filtering to exclude startup/shutdown transients
+
+## Integration Between mech_core and simulation
+
+The simulation framework leverages mech_core for all physics calculations:
+
+| Simulation Need | mech_core Provider | Usage |
+|---|---|---|
+| **Section Geometry** | `mech_core.components.members.aisc` | Web/flange thickness for cutting |
+| **Material Properties** | `mech_core.standards.materials.steel` | Specific melting energy, density |
+| **Cutting Speed** | `mech_core.analysis.heat_transfer` | Energy density → tool feed rate |
+| **Motion Planning** | `mech_core.analysis.kinematics` | Trapezoidal velocity profiles |
+| **Unit Handling** | `mech_core.standards.units` | Dimensional analysis throughout |
+
+**Key Design Pattern:** No simulation parameters are hard-coded. All physics derives from mech_core databases and standard materials, ensuring consistency and accuracy across structural design and manufacturing simulation.
+
 ## Standards & References
 
 - **AISC 360-16**: Specification for Structural Steel Buildings
@@ -278,7 +522,8 @@ AISC steel section database and query utilities:
 - pandas >= 2.0.0
 - matplotlib >= 3.7.0
 - pint >= 0.21.0
-- PyNiteFEA >= 0.0.90 (for FEA integration)
+- PyNiteFEA >= 0.0.90 (for mech_core FEA integration)
+- simpy >= 4.0.0 (for simulation discrete-event framework)
 
 ## Contributing
 
@@ -290,6 +535,7 @@ This project is provided as-is for educational and professional use.
 
 ## Recent Additions
 
+### mech_core
 - ✅ **FEA Integration** (PyNite wrapper with AISC section mapping)
 - ✅ **Symbolic derivation traces** (step-by-step LaTeX equations in reports)
 - ✅ **Diagram generation** (shear/moment plots from FEA)
@@ -300,9 +546,23 @@ This project is provided as-is for educational and professional use.
 - ✅ Boundary condition string mapping for columns
 - ✅ Weak axis bending support for beams
 - ✅ Modular materials architecture (steel/concrete/inventory)
+- ✅ **Heat transfer analysis** (specific melting energy for thermal cutting)
+- ✅ **Kinematics module** (trapezoidal velocity profiles)
+
+### simulation
+- ✅ **Discrete-event simulation framework** (SimPy-based)
+- ✅ **PCR41 machine model** (complete laser/plasma cutting platform)
+- ✅ **Physics-based robot simulation** (dynamic payload derating)
+- ✅ **Fiber laser & plasma torch tools** (energy density cutting calculations)
+- ✅ **DSTV NC code parser** (European CNC standard)
+- ✅ **Event logging system** (hierarchical event tracking)
+- ✅ **Gantt chart visualization** (resource utilization analysis)
+- ✅ **Material handling subsystems** (cross-transfer, linear actuators)
+- ✅ **Integration with mech_core** (geometry, materials, physics)
 
 ## Future Development
 
+### mech_core
 - [ ] Shear design for beams
 - [ ] Welded and bolted connection design
 - [ ] Seismic design provisions (CSA S16 seismic)
@@ -312,6 +572,16 @@ This project is provided as-is for educational and professional use.
 - [ ] Moment connection design
 - [ ] Composite beam design
 
+### simulation
+- [ ] PCR42 machine model (secondary cutting platform)
+- [ ] Additional robot models (ABB, Universal Robots)
+- [ ] Waterjet cutting tool simulation
+- [ ] Multi-beam batch processing optimization
+- [ ] 3D visualization of machine operations
+- [ ] Real-time simulation dashboard
+- [ ] Integration with production scheduling systems
+- [ ] Tool path optimization algorithms
+
 ## Author
 
-Built with structural engineering best practices and AISC standards compliance.
+Built with structural engineering best practices, AISC standards compliance, and physics-based manufacturing simulation principles.

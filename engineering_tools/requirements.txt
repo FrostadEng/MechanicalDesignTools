@@ -14,8 +14,11 @@ matplotlib>=3.7.0
 # Unit handling
 pint>=0.21.0
 
+# Fluid dynamics calculations
+fluids>=1.0.23
+
 # Optional: For advanced calculations
-sympy>=4.1.1
+simpy>=4.1.1
 
 # Development dependencies
 # pytest>=7.3.0

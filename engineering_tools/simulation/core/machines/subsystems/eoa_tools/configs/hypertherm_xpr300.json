@@ -1,0 +1,20 @@
+{
+    "model": "Hypertherm XPR300",
+    "type": "PLASMA",
+    "mass_kg": 32.0,
+    "specs": {
+        "power_kw": 64.0,
+        "efficiency_thermal": 0.55,
+        "tcp_offset_mm": [0.0, 0.0, -320.0]
+    },
+    "process_defaults": {
+        "kerf_width_mm": 2.6,
+        "pierce_delay_sec": 0.7,
+        "ihs_time_sec": 1.2,
+        "retract_dist_mm": 75.0,
+        "gas_pressure_bar": 100.0,
+        "nozzle_diameter_mm": 10.0,
+        "gas_gamma": 1.4,
+        "efficiency_factor": 1.0
+    }
+}

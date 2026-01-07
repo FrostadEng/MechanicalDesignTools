@@ -1,0 +1,10 @@
+{
+    "model": "Fanuc M-710iC/50",
+    "max_payload_kg": 50.0,
+    "kinematics": {
+        "linear_speed_rapid_mm_s": 2500.0,
+        "linear_accel_mm_s2": 2500.0,
+        "accel_derating_factor": 0.6
+    },
+    "reach_mm": 2050.0
+}
