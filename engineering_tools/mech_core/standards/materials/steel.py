@@ -31,6 +31,7 @@ class StructuralMaterial:
     ultimate_strength: Q_ # Sut (Fu)
     elastic_modulus: Q_   # E
     density: Q_           # rho
+    shear_modulus: Q_     # G (Calculated or Explicit)
     
     # --- Thermodynamic Properties (The "Energy Balance") ---
     melting_point: Q_         # Tm
@@ -108,8 +109,8 @@ _STRUCTURAL_DB = {
              "Lf": 270000
         },
         "surfaces": {
-            "patina": {"abs": 0.85, "emis": 0.95, "desc": "Stable protective rust layer"},
-            "blast_cleaned": {"abs": 0.50, "emis": 0.35, "desc": "Clean weathering steel"},
+             "patina": {"abs": 0.85, "emis": 0.95, "desc": "Stable protective rust layer"},
+             "blast_cleaned": {"abs": 0.50, "emis": 0.35, "desc": "Clean weathering steel"},
         }
     }
 }
@@ -137,13 +138,20 @@ def get_material(name: str) -> StructuralMaterial:
             emissivity=data["emis"]
         )
 
+    # Standard Steel Assumption for G
+    # E is in GPa, convert to Quantity first
+    E_quant = m_data["E"] * ureg.GPa
+    # G = E / 2(1+v), v=0.3 -> G = E / 2.6
+    G_quant = E_quant / 2.6
+
     return StructuralMaterial(
         name=name,
         # Mechanical (Multiplication works fine here because MPa is absolute)
         yield_strength=m_data["Sy"] * ureg.MPa,
         ultimate_strength=m_data["Sut"] * ureg.MPa,
-        elastic_modulus=m_data["E"] * ureg.GPa,
+        elastic_modulus=E_quant,
         density=m_data["rho"] * (ureg.kg / ureg.meter**3),
+        shear_modulus=G_quant,
         
         # Thermal Fix: Use ureg.Quantity() for Offset Units (degC)
         melting_point=ureg.Quantity(t_data["Tm"], ureg.degC), 

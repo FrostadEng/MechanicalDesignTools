@@ -9,7 +9,7 @@ sys.path.insert(0, repo_root)
 from mech_core.standards.units import ureg
 from mech_core.components.members.aisc import get_shapes_by_type, get_section
 from mech_core.standards.materials import get_material, get_concrete
-from mech_core.codes.structural.csa_s16.members import check_compressive_resistance, check_flexural_resistance
+from mech_core.standards.structural.csa_s16.members import check_compressive_resistance, check_flexural_resistance
 from mech_core.components.connections.axial.base_plate import BasePlateDesign
 from mech_core.analysis.fea import FrameAnalysis
 from mech_core.standards.reporting.generator import ReportGenerator

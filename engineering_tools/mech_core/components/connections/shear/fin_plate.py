@@ -6,7 +6,7 @@ Calculates geometric properties (Net Area, etc.) before calling code validators.
 """
 from mech_core.components.members.aisc import SectionProperties
 from mech_core.standards.materials import StructuralMaterial
-from mech_core.codes.structural.csa_s16 import connections as csa_conn
+from mech_core.standards.structural.csa_s16 import connections as csa_conn
 from mech_core.standards.units import ureg, Q_
 
 

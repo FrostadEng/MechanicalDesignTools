@@ -9,7 +9,7 @@ sys.path.insert(0, repo_root)
 from mech_core.standards.units import ureg
 from mech_core.components.members.aisc import get_section
 from mech_core.standards.materials import get_material
-from mech_core.codes.structural.csa_s16.members import check_flexural_resistance
+from mech_core.standards.structural.csa_s16.members import check_flexural_resistance
 
 def verify_example_f1_2a():
     print("=== Verifying AISC Example F.1-2A ===")
