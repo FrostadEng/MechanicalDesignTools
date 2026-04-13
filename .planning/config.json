@@ -33,6 +33,9 @@
     "context_warnings": true
   },
   "project_code": null,
+  "planning": {
+    "sub_repos": ["Robot_Simulations"]
+  },
   "phase_naming": "sequential",
   "agent_skills": {},
   "mode": "yolo",
