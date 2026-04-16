@@ -1,93 +1,76 @@
-# Eden Cell Optimizer — PCR42 Heavy Steel Robot Placement
+# EDEN Cell Optimizer
 
 ## What This Is
 
-A deterministic robot placement optimization pipeline built on top of the Eden Factory IDE. Starting from the AISC structural steel database, it establishes 2D Maximum Material Envelopes (MME) for every beam shape the PCR42 can process, then uses the Genesis physics engine to prove that a static floor-mounted FANUC M-20iD/12L can reach all required cutting faces across both work zones — enabling a standardized, modular work cell architecture.
-
-**This is an engineering analysis tool, not a production scheduler.** It answers the question: where should the robot base go?
+A Python-based exhaustive grid search optimizer that determines the globally optimal Fanuc M-20iD/35 robot base placement (Y position + riser height) and end-of-arm tool (EOAT) geometry for a beam coping cell. Given the full AISC structural steel catalog and a 1-meter workzone, it provably finds the single best (tool design, placement) combination that maximizes reachability and cope feasibility across all beam shapes at 6mm buildable resolution.
 
 ## Core Value
 
-Prove that static robot mounting achieves 100% reachability for PCR42 structural steel processing, eliminating the need for costly 1-axis integrated positioners.
+Prove — exhaustively and without heuristics — that a specific riser height, base Y position, and tool geometry achieves 100% reachability across the entire AISC catalog within the given workzone, or quantify exactly what the gap is.
 
 ## Requirements
 
 ### Validated
 
-- ✓ Genesis physics simulator operational — Docker + `.venv` with Genesis, PyTorch, CUDA running in `Robot_Simulations/eden/`
-- ✓ AISC shape database loaded and queryable — `aisc_shapes.json` + `aisc.py` SectionProperties API exists in `engineering_tools/mech_core/`
-- ✓ Robot kinematic utilities available — `mech_core.analysis.kinematics` (trapezoidal profiles, 3D distance)
-- ✓ Fanuc robot model configuration exists — `configs/fanuc.json` used by DES `RobotArm`, baseline kinematics known
-- ✓ Eden Docker infrastructure functional — GPU passthrough, compose, authoring and training containers built
-- ✓ matplotlib available — used for FEA diagrams throughout `engineering_tools`; available in both venvs
+(None yet — ship to validate)
 
 ### Active
 
-**Phase 0 — 2D MME Sanity Check:**
-- [ ] Filter AISC database to PCR42-compatible shapes (≤300 lbs/ft, ≤1100mm max width/depth)
-- [ ] Categorize shapes: 3-face (W, S, M, HP, C, MC), 4-face (HSS rect/sq/pipe), L-angle (2 orientations for unequal legs)
-- [ ] Compute composite bounding box (MME / No-Go zone) per category
-- [ ] Render scaled 2D matplotlib overlays with all cross-sections + MME bounds, export PNGs
-- [ ] Output to `Robot_Simulations/eden/experiments/Beam_Coping_Machine/phase0_2d_mme/`
-
-**Phase 1 — 3D Genesis Simulation Spatial Search:**
-- [ ] Load FANUC M-20iD/12L URDF from `ros-industrial/fanuc` into `eden/assets/fanuc/`
-- [ ] Build Genesis scene: conveyor (with inter-roller gaps for bottom-face cuts), pinch_unit (block proxy), robot
-- [ ] For each Phase-0-validated shape: place 40ft surrogate beam, derive required TCP face paths per N-face category
-- [ ] Define work zones: WZ1 = +1.5ft to +4.0ft; WZ2 = -1.5ft to -3.0ft (third offset -1.5ft, dead zone = 3.0ft)
-- [ ] Implement search loop: propose [X,Y,Z] base mount → IK check → collision check → singularity check → log
-- [ ] Pre-filter candidate search space using FANUC M-20iD/12L reach envelope before Genesis evaluation
-- [ ] Log valid poses sorted by kinematic manipulability index
-- [ ] Consider Bayesian optimization for next-point proposal within pre-filtered region
+- [ ] OPW IK solver configured for Fanuc M-20iD/35 with validated FK→IK round-trips
+- [ ] Phase 1 tool design table: sweep all (torch_angle × boom_length × puck_drop) combos, reject by wrist load diagram + deflection constraint, output valid_tools.json
+- [ ] Collision environment: two boundary wall planes (X=±515mm), conveyor surface (Z=838mm), AISC beam extrusion meshes
+- [ ] Target database: straight-cut sweep poses (25mm spacing) and cope trajectories for all AISC catalog beams, sorted hardest-first
+- [ ] Phase A grid search: 100 representative tools × full placement grid → top 500 placements
+- [ ] Phase B grid search: all valid tools × top 500 placements → globally optimal (tool, placement) pair
+- [ ] Results reporting: best_config.json, reachability heatmap, cope report, gap report, visualization of top-N configs
+- [ ] 14-thread parallelization on i5-13600K with estimated ~33 hour wall time
+- [ ] Dual-unit logging (Imperial + SI) throughout
 
 ### Out of Scope
 
-- RL/reward-function training — this project uses deterministic IK reachability checks, not learned policies; RL is the prior Eden automotive use case
-- Real STEP collision meshes — user will provide CAD files later; block proxies used for initial runs
-- TCP geometry / plasma torch STEP model — user to supply tool offset (x,y,z relative to J6) at Phase 1 start; 50mm umbilical buffer baked into collision volume
-- Full production scheduling / cycle time — that's the PCR41/PCR42 DES; this project answers placement only
-- Multi-robot configurations — single FANUC M-20iD/12L only for this milestone
-- Path planning quality (smooth trajectories) — IK reachability + collision-free is the acceptance criteria; motion smoothness is post-placement concern
+- Machine learning, genetic algorithms, or any sampling-based optimization — pure brute force only
+- ROS1/ROS2/catkin dependencies — standalone Python + C++ pybind11 only
+- Secondary workzone or cantilevered riser configurations — single zone, straight riser only
+- GPU compute — workload is purely CPU-bound
+- Real-time robot control or communication — offline planning tool only
 
 ## Context
 
-**Machine:** PCR42 — structural steel coping/cutting line using plasma torch on a FANUC M-20iD/12L. The robot currently uses a 1-axis positioner integrated into the pinch unit, causing overhung load problems and gearbox lubrication starvation. This project proves the robot can be statically mounted instead.
+**Robot:** Fanuc ARC Mate 120iD/35 (M-20iD/35), 1831mm reach, 35kg payload, standard OPW kinematic structure (parallel base + spherical wrist).
 
-**Predecessor:** Eden was originally built for automotive spot welding optimization. The Genesis Docker environment, robot model infrastructure, and hello_genesis.py experiments are the starting point. The pivot is from learning-based control (RL) to deterministic spatial search (IK + collision).
+**Physical Setup:** 1m workzone centered at origin. Conveyor rollers at Z=838mm (33"). Robot X position fixed at 0. Y placement in two valid ranges: +1612mm to +1778mm (opposite side) or -190mm to -1778mm (datum side). Riser is straight 10"×10"×3/8" HSS.
 
-**Work Zones (from PCR42 geometry, user-provided):**
-- Origin: center of pinch unit at datum, floor level
-- WZ1 (main): +1.5ft to +4.0ft downstream of pinch
-- WZ2 (secondary — tail features): -1.5ft to -3.0ft upstream of pinch
-- Dead zone (between WZ1 near edge and WZ2 near edge): 3.0ft — these features are inaccessible, not a failure
+**EOAT Design Space:** 5 torch angles (0°/30°/45°/60°/90°) × ~58 boom lengths (155mm to max, 6mm steps) × ~25 puck drop positions = ~7,250 raw candidates. After wrist load rejection (~85% rejection rate): ~1,088 valid tools. After TCP clustering: ~100-200 representative groups.
 
-**Key integration:** `aisc.py` and `aisc_shapes.json` live in `engineering_tools/`, but Phase 0 script runs in `Robot_Simulations/eden/` venv context. Import path bridging or a copy of the relevant data will be needed.
+**IK:** OPW kinematics via C++ pybind11 wrapper (~4μs per query). Pure Python OPW is non-viable (~40μs, doubles runtime to 52+ days). URDF source: ros-industrial/fanuc — verify M-20iD/35 vs M-20iA distinction.
 
-**Eden structure for this work:**
-```
-Robot_Simulations/eden/experiments/Beam_Coping_Machine/
-├── phase0_2d_mme/    # Phase 0 scripts and PNG outputs
-└── phase1_3d_sim/    # Phase 1 Genesis scripts
-```
+**Beam Catalog:** Full AISC catalog ≤300 lb/ft fitting 56" conveyor width, queried from aisc.py. Shapes: W/C/S (3-face), L-angle (inverted V, 2 slopes), HSS/Pipe/Rect tube (4-face). Cope trajectory types: square, radius, block.
+
+**Compute:** Intel i5-13600K, 14 threads. Phase A ~17 hours, Phase B ~16 hours. Total ~33 hours.
+
+**Robot manual:** `Robot_Simulations/datasheets/HRP-2 Fanuc Robot M-20iD Mechanical Unit Operators Manual.md` (OCR'd).
 
 ## Constraints
 
-- **Tech Stack**: Python 3.x, Genesis (Embodied AI), ROS2 Jazzy, ros-industrial/fanuc URDF, numpy, matplotlib — no new heavy frameworks
-- **Runtime**: All Genesis simulation must run inside the existing `Robot_Simulations/eden/.venv` (or Docker); Genesis is not available in the main `engineering_tools` venv
-- **Robot base**: Floor or standard riser only (Z = 0 to 1000mm); pitch and roll strictly 0 (flat mount)
-- **No Genesis modification**: Eden principle — never modify the Genesis engine itself
-- **Collision meshes**: Block proxies acceptable for initial Phase 1; real STEP files to be swapped in later without code restructuring
-- **User-supplied data at Phase 1 start**: TCP x,y,z offset relative to J6 faceplate (required before running search)
+- **Performance**: C++ OPW via pybind11 mandatory — pure Python is 10× too slow for the grid size
+- **Accuracy**: Grid resolution 6mm (1/8" buildable). TCP deflection ≤1/16" (1.5875mm) at max riser height
+- **Safety factor**: 1.25× applied to all tool masses before wrist load diagram check
+- **Hardware**: Single machine, i5-13600K, 14 threads, Linux
+- **No ML**: Results must be provably globally optimal (exhaustive), not probabilistically good
+- **Build accuracy**: All output coordinates must be achievable with a tape measure (6mm / 1/8" resolution)
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Static mounting over 1-axis positioner | Eliminates overhung loads, gearbox starvation, cost; this whole project proves it's viable | — Pending |
-| Deterministic IK search over RL | Faster to validate, more interpretable, directly answers placement question without training time | — Pending |
-| Bayesian optimization for search loop | Reach-bubble pre-filter dramatically reduces candidate space; BO is sample-efficient for remaining candidates | — Pending |
-| Block proxies for collision meshes | Real STEP files not yet available; proxies allow Phase 1 to proceed; API designed for easy swap | — Pending |
-| Phase 0 first, no Genesis yet | 2D sanity check is fast and catches dimension/category errors before expensive 3D setup | — Pending |
+| Two-phase hierarchical search | Flat grid = 766M cells (31 days). Hierarchical = 33 hours. Phase A finds placements with 100 representative tools; Phase B tests all tools at top 500 placements. Still 100% brute force | — Pending |
+| C++ OPW via pybind11 | Pure Python OPW ~40μs/query; C++ ~4μs. On 766M-cell grid this is 33 hours vs 52 days | — Pending |
+| TCP clustering (10mm bins) | Tools with TCP within 10mm behave nearly identically at same placement. Reduces Phase A from ~1800 to ~100 representative tools | — Pending |
+| Hardest-beam-first evaluation | Early termination: failing W36 skips remaining 290 beams. Reduces avg evaluation time ~70% | — Pending |
+| Fixed X=0 robot position | Symmetry — no advantage to offsetting along beam travel direction | — Pending |
+| 5 discrete torch angles (special triangles) | 0°/30°/45°/60°/90° are easy to cut, verify, and build. Continuous angles would add ~10× design space with negligible benefit | — Pending |
+| Representative collision blocks | Full pinch unit/conveyor mesh not needed. Two boundary wall planes + conveyor surface capture hard constraints | — Pending |
+| M-20iD/35 replaces M-20iA | New product design. Higher payload (35kg vs 20kg), same reach class, integrated cable routing | — Pending |
 
 ## Evolution
 
@@ -107,4 +90,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-12 after initialization*
+*Last updated: 2026-04-15 after initialization*
