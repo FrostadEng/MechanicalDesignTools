@@ -39,5 +39,5 @@
   "phase_naming": "sequential",
   "agent_skills": {},
   "mode": "yolo",
-  "granularity": "fine"
+  "granularity": "standard"
 }
