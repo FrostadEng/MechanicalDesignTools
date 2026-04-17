@@ -21,24 +21,28 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Phase Details
 
 ### Phase 1: Solver Foundation
-**Goal**: Developer can run validated FK→IK round-trips on the M-20iD/20 at ≥4 µs/query inside a reproducible environment
+**Goal**: Developer can run validated FK->IK round-trips on the M-20iD/20 at >=4 us/query inside a reproducible environment
 **Depends on**: Nothing (first phase)
 **Requirements**: SOLV-01, SOLV-02, SOLV-03, SOLV-04, SOLV-05, ENV-01, ENV-02, ENV-03, LOG-01
 **Success Criteria** (what must be TRUE):
-  1. The OPW C++ pybind11 extension builds cleanly and achieves ≥4 µs/query on the i5-13600K host
-  2. 500+ FK→IK round-trip tests pass with position error <0.01 mm and orientation error <0.01°
+  1. The OPW C++ pybind11 extension builds cleanly and achieves >=4 us/query on the i5-13600K host
+  2. 500+ FK->IK round-trip tests pass with position error <0.01 mm and orientation error <0.01 deg
   3. Joint limit enforcement is verified for all six axes and all 8 OPW solution candidates
   4. All physical constants (geometry, budget sub-allocations, section properties) live in a single `config.py` with no magic numbers elsewhere
   5. All physical quantities printed by the optimizer appear in both Imperial and SI units
-**Plans**: TBD
+**Plans:** 2 plans
+
+Plans:
+- [ ] 01-01-PLAN.md -- Environment setup, config.py, logging_utils.py (ENV-01, ENV-02, LOG-01)
+- [ ] 01-02-PLAN.md -- OPW solver wrapper, validation suite, multiprocessing spawn (SOLV-01-05, ENV-03)
 
 ### Phase 2: Pre-computation Artifacts
 **Goal**: All pre-computed lookup tables and databases are generated, validated, and frozen on disk — ready to feed the search pipeline
 **Depends on**: Phase 1
 **Requirements**: TOOL-01, TOOL-02, TOOL-03, TOOL-04, TOOL-05, TOOL-06, RISER-01, RISER-02, RISER-03, RISER-04, RISER-05, COLL-01, COLL-02, COLL-03, COLL-04, TARG-01, TARG-02, TARG-03, TARG-04, TARG-05
 **Success Criteria** (what must be TRUE):
-  1. `valid_tools.json` exists with ~1044 entries (wrist-load and boom-deflection filtered) and ~150–200 cluster representatives selected by TCP/CG/angle proximity
-  2. `riser_validity_table.json` exists covering all (section, height) pairs with computed δ_TCP, f₁, and k_anchor sensitivity margin — pairs exceeding 0.55 mm deflection or below 15 Hz marked failed
+  1. `valid_tools.json` exists with ~1044 entries (wrist-load and boom-deflection filtered) and ~150-200 cluster representatives selected by TCP/CG/angle proximity
+  2. `riser_validity_table.json` exists covering all (section, height) pairs with computed d_TCP, f1, and k_anchor sensitivity margin — pairs exceeding 0.55 mm deflection or below 15 Hz marked failed
   3. An FCL collision scene is initializable with static boundary walls, conveyor surface, ground plane, and any live AISC beam mesh verified watertight before insertion
   4. `target_database/` exists with per-shape pose files (straight-cut sweeps at 25 mm spacing and cope trajectories) and `beam_difficulty_ranking.json` sorted hardest-first — all files read-only frozen
 **Plans**: TBD
@@ -60,9 +64,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Depends on**: Phase 3
 **Requirements**: SRCH-02, SRCH-05, SRCH-06
 **Success Criteria** (what must be TRUE):
-  1. Phase A completes (~180 representative tools × 29,280 placement configs) with results written to Parquet shards — no worker crashes lost
+  1. Phase A completes (~180 representative tools x 29,280 placement configs) with results written to Parquet shards — no worker crashes lost
   2. Top-750 unique placements are selected from Phase A by reachability_pct descending then hardware_cost ascending
-  3. Phase B completes (~1044 valid tools × top-750 placements) with cope feasibility check applied when reachability ≥ 95% — results written to Parquet
+  3. Phase B completes (~1044 valid tools x top-750 placements) with cope feasibility check applied when reachability >= 95% — results written to Parquet
 **Plans**: TBD
 
 ### Phase 5: Reporting and Visualization
@@ -81,11 +85,11 @@ Decimal phases appear between their surrounding integers in numeric order.
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Solver Foundation | 0/TBD | Not started | - |
+| 1. Solver Foundation | 0/2 | Planning complete | - |
 | 2. Pre-computation Artifacts | 0/TBD | Not started | - |
 | 3. Search Pipeline | 0/TBD | Not started | - |
 | 4. Full Search Execution | 0/TBD | Not started | - |
