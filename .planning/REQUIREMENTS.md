@@ -12,8 +12,8 @@
 
 ### Environment
 
-- [ ] **ENV-01**: Developer can run the optimizer from a dedicated venv (venv_optimizer) with all required dependencies installed (pybind11, python-fcl, pyarrow, numpy, scipy, trimesh, pyvista, tqdm, aisc.py)
-- [ ] **ENV-02**: Developer can import a single `config.py` containing all physical constants (robot geometry, workzone bounds, TCP budget sub-allocations, conveyor dimensions, all section properties) with no magic numbers in any other module
+- [x] **ENV-01**: Developer can run the optimizer from a dedicated venv (venv_optimizer) with all required dependencies installed (pybind11, python-fcl, pyarrow, numpy, scipy, trimesh, pyvista, tqdm, aisc.py)
+- [x] **ENV-02**: Developer can import a single `config.py` containing all physical constants (robot geometry, workzone bounds, TCP budget sub-allocations, conveyor dimensions, all section properties) with no magic numbers in any other module
 - [ ] **ENV-03**: Developer can run the optimizer on Linux (Ubuntu 22.04+) with Python multiprocessing using `spawn` start method (never `fork`) without pybind11 GIL corruption
 
 ### Tool Design Table (Phase 1 of spec)
@@ -69,7 +69,7 @@
 
 ### Logging and Dual-Unit Output
 
-- [ ] **LOG-01**: Developer can see all physical quantities logged in both Imperial (in, lb, °F) and SI (mm, kg, °C) units throughout the optimizer output
+- [x] **LOG-01**: Developer can see all physical quantities logged in both Imperial (in, lb, °F) and SI (mm, kg, °C) units throughout the optimizer output
 - [ ] **LOG-02**: Developer can see per-cell rejection reasons logged (which filter rejected, what value failed what threshold) for debugging and filter-rejection-rate analysis
 
 ### Visualization
@@ -107,10 +107,10 @@
 | SOLV-03 | Phase 1 | Pending | Hard blocking gate; verify M-20iD/20 vs M-20iD/25 param distinction |
 | SOLV-04 | Phase 1 | Pending | Hard blocking gate |
 | SOLV-05 | Phase 1 | Pending | Hard blocking gate |
-| ENV-01 | Phase 1 | Pending | venv and dependency setup |
-| ENV-02 | Phase 1 | Pending | config.py single source of truth |
+| ENV-01 | Phase 1 | Complete | venv and dependency setup |
+| ENV-02 | Phase 1 | Complete | config.py single source of truth |
 | ENV-03 | Phase 1 | Pending | spawn start method verified |
-| LOG-01 | Phase 1 | Pending | Dual-unit infrastructure established here, used throughout |
+| LOG-01 | Phase 1 | Complete | Dual-unit infrastructure established here, used throughout |
 | TOOL-01 | Phase 2 | Pending | Independent of riser model; can run in parallel internally |
 | TOOL-02 | Phase 2 | Pending | |
 | TOOL-03 | Phase 2 | Pending | |
