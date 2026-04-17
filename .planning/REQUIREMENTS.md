@@ -4,17 +4,17 @@
 
 ### Solver (OPW IK Foundation)
 
-- [ ] **SOLV-01**: Developer can build and import the OPW kinematics C++ pybind11 extension achieving ≥4 µs/query on the target i5-13600K host
-- [ ] **SOLV-02**: Developer can run 500+ FK→IK round-trip validation tests confirming position error <0.01 mm and orientation error <0.01° for random configs within M-20iD/20 joint limits
-- [ ] **SOLV-03**: Developer can confirm OPW parameter values (a1, a2, b, c1, c2, c3, c4) produce a reachable workspace matching Fig 3.2a operating space diagram from Fanuc manual B-84074EN/03
-- [ ] **SOLV-04**: Developer can run IK on known wrist-aligned and full-extension singularity poses and observe documented solver behavior (not silent failure)
-- [ ] **SOLV-05**: Developer can verify M-20iD/20 joint limits (J1 ±170°, J2 -100°/+160°, J3 -190°/+268.4°, J4 ±200°, J5 ±270°, J6 ±450°) are enforced and all 8 OPW solutions filtered correctly
+- [x] **SOLV-01**: Developer can build and import the OPW kinematics C++ pybind11 extension achieving ≥4 µs/query on the target i5-13600K host
+- [x] **SOLV-02**: Developer can run 500+ FK→IK round-trip validation tests confirming position error <0.01 mm and orientation error <0.01° for random configs within M-20iD/20 joint limits
+- [x] **SOLV-03**: Developer can confirm OPW parameter values (a1, a2, b, c1, c2, c3, c4) produce a reachable workspace matching Fig 3.2a operating space diagram from Fanuc manual B-84074EN/03
+- [x] **SOLV-04**: Developer can run IK on known wrist-aligned and full-extension singularity poses and observe documented solver behavior (not silent failure)
+- [x] **SOLV-05**: Developer can verify M-20iD/20 joint limits (J1 ±170°, J2 -100°/+160°, J3 -190°/+268.4°, J4 ±200°, J5 ±270°, J6 ±450°) are enforced and all 8 OPW solutions filtered correctly
 
 ### Environment
 
 - [x] **ENV-01**: Developer can run the optimizer from a dedicated venv (venv_optimizer) with all required dependencies installed (pybind11, python-fcl, pyarrow, numpy, scipy, trimesh, pyvista, tqdm, aisc.py)
 - [x] **ENV-02**: Developer can import a single `config.py` containing all physical constants (robot geometry, workzone bounds, TCP budget sub-allocations, conveyor dimensions, all section properties) with no magic numbers in any other module
-- [ ] **ENV-03**: Developer can run the optimizer on Linux (Ubuntu 22.04+) with Python multiprocessing using `spawn` start method (never `fork`) without pybind11 GIL corruption
+- [x] **ENV-03**: Developer can run the optimizer on Linux (Ubuntu 22.04+) with Python multiprocessing using `spawn` start method (never `fork`) without pybind11 GIL corruption
 
 ### Tool Design Table (Phase 1 of spec)
 
@@ -102,14 +102,14 @@
 
 | REQ-ID | Phase | Status | Notes |
 |--------|-------|--------|-------|
-| SOLV-01 | Phase 1 | Pending | Hard blocking gate — must pass before any Phase 2+ work |
-| SOLV-02 | Phase 1 | Pending | Hard blocking gate |
-| SOLV-03 | Phase 1 | Pending | Hard blocking gate; verify M-20iD/20 vs M-20iD/25 param distinction |
-| SOLV-04 | Phase 1 | Pending | Hard blocking gate |
-| SOLV-05 | Phase 1 | Pending | Hard blocking gate |
+| SOLV-01 | Phase 1 | Complete | Hard blocking gate — must pass before any Phase 2+ work |
+| SOLV-02 | Phase 1 | Complete | Hard blocking gate |
+| SOLV-03 | Phase 1 | Complete | Hard blocking gate; verify M-20iD/20 vs M-20iD/25 param distinction |
+| SOLV-04 | Phase 1 | Complete | Hard blocking gate |
+| SOLV-05 | Phase 1 | Complete | Hard blocking gate |
 | ENV-01 | Phase 1 | Complete | venv and dependency setup |
 | ENV-02 | Phase 1 | Complete | config.py single source of truth |
-| ENV-03 | Phase 1 | Pending | spawn start method verified |
+| ENV-03 | Phase 1 | Complete | spawn start method verified |
 | LOG-01 | Phase 1 | Complete | Dual-unit infrastructure established here, used throughout |
 | TOOL-01 | Phase 2 | Pending | Independent of riser model; can run in parallel internally |
 | TOOL-02 | Phase 2 | Pending | |

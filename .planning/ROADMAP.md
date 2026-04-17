@@ -12,7 +12,7 @@ Build a bounded brute-force grid search optimizer that exhaustively determines t
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Solver Foundation** - OPW IK solver built, validated, and environment configured — hard blocking gate
+- [x] **Phase 1: Solver Foundation** - OPW IK solver built, validated, and environment configured — hard blocking gate (completed 2026-04-17)
 - [ ] **Phase 2: Pre-computation Artifacts** - Tool table, riser model, collision environment, and target database all generated and frozen
 - [ ] **Phase 3: Search Pipeline** - Multiprocessing search workers built and verified with 100-cell smoke test
 - [ ] **Phase 4: Full Search Execution** - Phase A (~18 hr) and Phase B (~5 hr) runs complete with Parquet results on disk
@@ -30,11 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Joint limit enforcement is verified for all six axes and all 8 OPW solution candidates
   4. All physical constants (geometry, budget sub-allocations, section properties) live in a single `config.py` with no magic numbers elsewhere
   5. All physical quantities printed by the optimizer appear in both Imperial and SI units
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 01-01-PLAN.md -- Environment setup, config.py, logging_utils.py (ENV-01, ENV-02, LOG-01)
-- [ ] 01-02-PLAN.md -- OPW solver wrapper, validation suite, multiprocessing spawn (SOLV-01-05, ENV-03)
+- [x] 01-02-PLAN.md -- OPW solver wrapper, validation suite, multiprocessing spawn (SOLV-01-05, ENV-03)
 
 ### Phase 2: Pre-computation Artifacts
 **Goal**: All pre-computed lookup tables and databases are generated, validated, and frozen on disk — ready to feed the search pipeline
@@ -89,7 +89,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Solver Foundation | 1/2 | In Progress|  |
+| 1. Solver Foundation | 2/2 | Complete   | 2026-04-17 |
 | 2. Pre-computation Artifacts | 0/TBD | Not started | - |
 | 3. Search Pipeline | 0/TBD | Not started | - |
 | 4. Full Search Execution | 0/TBD | Not started | - |
