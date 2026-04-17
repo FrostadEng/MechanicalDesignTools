@@ -2,17 +2,17 @@
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-04-12)
+See: .planning/PROJECT.md (updated 2026-04-16)
 
-**Core value:** Prove static robot mounting achieves 100% reachability for PCR42 structural steel processing, eliminating 1-axis positioners.
-**Current focus:** Phase 1 — AISC Filter and Shape Classification
+**Core value:** Determine — exhaustively and without heuristics — the specific riser height, riser section, base X/Y/yaw, and tool geometry that achieves maximum AISC catalog reachability within the workzone, quantifying exactly what the gap is and which beams or faces fail.
+**Current focus:** Phase 1 — Solver Foundation
 
 ## Current Position
 
-Phase: 1 of 8 (AISC Filter and Shape Classification)
-Plan: 0 of 6 in current phase
+Phase: 1 of 5 (Solver Foundation)
+Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-04-12 — Roadmap and state initialized for Milestone 1
+Last activity: 2026-04-16 — Roadmap created, STATE initialized
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -21,7 +21,7 @@ Progress: [░░░░░░░░░░] 0%
 **Velocity:**
 - Total plans completed: 0
 - Average duration: —
-- Total execution time: 0.0 hours
+- Total execution time: 0 hours
 
 **By Phase:**
 
@@ -42,9 +42,10 @@ Progress: [░░░░░░░░░░] 0%
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
-- [Pre-Phase 1]: sys.path bridge to engineering_tools/mech_core — do not pip install mech_core into Eden venv (pulls PySide6)
-- [Pre-Phase 3]: optuna>=3.6.0 chosen over scikit-optimize (unmaintained since 2021) for TPE search
-- [Pre-Phase 3]: requires_jac_and_IK defaults to False in Genesis 0.3.4 morphs.py:86 — always set explicitly to True
+- V3 spec: C++ OPW pybind11 mandatory (pure Python 10× too slow for grid size)
+- V3 spec: RSS error budget 1.0 mm total; riser + baseplate deflection ≤ 0.55 mm; boom ≤ 0.20 mm
+- V3 spec: TCP clustering tightened to 5 mm CG-inclusive (V2 10 mm caused ~5–15% Phase A false-passes)
+- V3 spec: Multiprocessing must use `spawn` start method — never `fork` with pybind11
 
 ### Pending Todos
 
@@ -52,13 +53,19 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Phase 3]: TCP offset (x,y,z relative to J6 faceplate) must be supplied by user before Phase 3 runs — no safe default
-- [Phase 3]: FANUC M-20iD/12L reach radius has three conflicting values (1813mm, 1831mm, 1868mm) — confirm from official spec sheet before baking into reach_prefilter.py
-- [Phase 3]: robot.set_pos() on fixed=True URDF after scene.build() is unverified — if broken, search loop switches to n_envs batch architecture
-- [Phase 3]: robot.get_jacobian() availability in Genesis 0.3.4 unconfirmed — FD Jacobian fallback is available
+- Phase 1 is a hard blocking gate: nothing in Phase 2+ can start until FK→IK round-trips pass at ≥4 µs/query
+- M-20iD/20 vs M-20iD/25 OPW parameter distinction must be confirmed before SOLV-03 can close
+
+## Deferred Items
+
+Items acknowledged and carried forward from previous milestone close:
+
+| Category | Item | Status | Deferred At |
+|----------|------|--------|-------------|
+| *(none)* | | | |
 
 ## Session Continuity
 
-Last session: 2026-04-12
-Stopped at: Roadmap created, state initialized. Phase 1 ready to plan.
+Last session: 2026-04-16
+Stopped at: Roadmap and STATE created — ready to plan Phase 1
 Resume file: None

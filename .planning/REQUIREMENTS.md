@@ -100,15 +100,49 @@
 
 ## Traceability
 
-| REQ-ID | Phase | Notes |
-|--------|-------|-------|
-| SOLV-01 to SOLV-05 | Phase 1 | Blocking gate — must complete before any grid search |
-| ENV-01 to ENV-03 | Phase 1 | Part of solver foundation setup |
-| TOOL-01 to TOOL-06 | Phase 2 | Pre-computation artifact; independent of riser model |
-| RISER-01 to RISER-05 | Phase 2 | Pre-computation artifact; independent of tool table |
-| COLL-01 to COLL-04 | Phase 2 | Depends on aisc.py (ENV-01) and beam mesh logic |
-| TARG-01 to TARG-05 | Phase 2 | Depends on COLL environment being established |
-| SRCH-01 to SRCH-08 | Phase 3 | Depends on all Phase 2 pre-computation artifacts |
-| SCOR-01 to SCOR-05 | Phase 4 | Depends on Phase 3 Parquet results |
-| LOG-01 to LOG-02 | Phase 1–4 | Implemented alongside each component |
-| VIZ-01 | Phase 4 | Post-search reporting |
+| REQ-ID | Phase | Status | Notes |
+|--------|-------|--------|-------|
+| SOLV-01 | Phase 1 | Pending | Hard blocking gate — must pass before any Phase 2+ work |
+| SOLV-02 | Phase 1 | Pending | Hard blocking gate |
+| SOLV-03 | Phase 1 | Pending | Hard blocking gate; verify M-20iD/20 vs M-20iD/25 param distinction |
+| SOLV-04 | Phase 1 | Pending | Hard blocking gate |
+| SOLV-05 | Phase 1 | Pending | Hard blocking gate |
+| ENV-01 | Phase 1 | Pending | venv and dependency setup |
+| ENV-02 | Phase 1 | Pending | config.py single source of truth |
+| ENV-03 | Phase 1 | Pending | spawn start method verified |
+| LOG-01 | Phase 1 | Pending | Dual-unit infrastructure established here, used throughout |
+| TOOL-01 | Phase 2 | Pending | Independent of riser model; can run in parallel internally |
+| TOOL-02 | Phase 2 | Pending | |
+| TOOL-03 | Phase 2 | Pending | |
+| TOOL-04 | Phase 2 | Pending | |
+| TOOL-05 | Phase 2 | Pending | |
+| TOOL-06 | Phase 2 | Pending | Outputs valid_tools.json |
+| RISER-01 | Phase 2 | Pending | Independent of tool table; can run in parallel internally |
+| RISER-02 | Phase 2 | Pending | |
+| RISER-03 | Phase 2 | Pending | |
+| RISER-04 | Phase 2 | Pending | Outputs riser_validity_table.json |
+| RISER-05 | Phase 2 | Pending | |
+| COLL-01 | Phase 2 | Pending | Depends on ENV-01 (aisc.py in venv) |
+| COLL-02 | Phase 2 | Pending | |
+| COLL-03 | Phase 2 | Pending | |
+| COLL-04 | Phase 2 | Pending | |
+| TARG-01 | Phase 2 | Pending | Depends on COLL environment established |
+| TARG-02 | Phase 2 | Pending | |
+| TARG-03 | Phase 2 | Pending | |
+| TARG-04 | Phase 2 | Pending | |
+| TARG-05 | Phase 2 | Pending | Outputs frozen target_database/ |
+| SRCH-01 | Phase 3 | Pending | 100-cell smoke test — must pass before Phase 4 long run |
+| SRCH-03 | Phase 3 | Pending | Reach-fail vs geometry-fail distinction |
+| SRCH-04 | Phase 3 | Pending | Crash-safe Parquet shard writes |
+| SRCH-07 | Phase 3 | Pending | Riser height propagation regression test |
+| SRCH-08 | Phase 3 | Pending | spawn multiprocessing pool worker init |
+| LOG-02 | Phase 3 | Pending | Per-cell rejection logging for filter analysis |
+| SRCH-02 | Phase 4 | Pending | Phase A full run (~18 hr) |
+| SRCH-05 | Phase 4 | Pending | Top-750 selection from Phase A results |
+| SRCH-06 | Phase 4 | Pending | Phase B full run (~5 hr) |
+| SCOR-01 | Phase 5 | Pending | Depends on Phase B Parquet results |
+| SCOR-02 | Phase 5 | Pending | |
+| SCOR-03 | Phase 5 | Pending | |
+| SCOR-04 | Phase 5 | Pending | |
+| SCOR-05 | Phase 5 | Pending | |
+| VIZ-01 | Phase 5 | Pending | URDF scene renders for top-10 configs |
