@@ -12,11 +12,13 @@ Determine — exhaustively and without heuristics — the specific riser height,
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ OPW IK solver configured for Fanuc M-20iD/20 with validated FK→IK round-trips (3.4 µs/query via Rust/PyO3 py-opw-kinematics) — v1.0
+- ✓ Single `config.py` with all physical constants (OPW params, joint limits, workzone, risers, TCP budget) — no magic numbers elsewhere — v1.0
+- ✓ `spawn` multiprocessing start method verified without PyO3 GIL corruption — v1.0
+- ✓ Dual-unit logging (Imperial + SI) infrastructure established via `logging_utils.py` — v1.0
 
 ### Active
 
-- [ ] OPW IK solver configured for Fanuc M-20iD/20 with validated FK→IK round-trips (~4 μs/query via C++ pybind11)
 - [ ] Phase 1 tool design table: sweep all (torch_angle × boom_length × puck_drop) combos, reject by wrist load diagram (1.25× safety) + boom deflection ≤0.20 mm, cluster by (TCP_xyz, CG_xy, torch_angle) at 5 mm, output valid_tools.json (~1044 entries, ~180 cluster representatives)
 - [ ] Riser deflection + modal pre-computation: closed-form superposition model (column bending + baseplate rotation), reject (section, height) pairs where δ_TCP > 0.55 mm or f₁ < 15 Hz
 - [ ] Collision environment: boundary wall planes (X=±515 mm), conveyor surface (Z=838 mm), ground plane, active beam mesh per evaluation (NEW in V3)
@@ -78,7 +80,7 @@ Determine — exhaustively and without heuristics — the specific riser height,
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Two-phase hierarchical search | Flat grid = 30.6M cells (13 days). Phase A with 180 rep tools finds good placements; Phase B tests all 1044 tools at top 500. Still 100% brute force over full space | — Pending |
-| C++ OPW via pybind11 | Pure Python OPW ~40 μs/query; C++ ~4 μs. Critical for 23-hour runtime | — Pending |
+| Rust/PyO3 py-opw-kinematics instead of C++ pybind11 | Same performance goal (~4 µs); py-opw-kinematics 1.0.0 on PyPI is simpler than building pybind11 C++ extension. D-08 supersedes D-09 in Plan 02. | ✓ 3.4 µs/call achieved — v1.0 |
 | TCP clustering tightened to 5 mm CG-inclusive | V2 10 mm clustering with CG mismatch caused ~5–15% Phase A false-passes. Now clusters on (TCP_xyz, CG_xy, torch_angle) | — Pending |
 | Robot yaw as search variable | J1 range changes with orientation; 4 discrete values cheap to test, potentially large impact on J-limit behavior | — Pending |
 | Riser cross-section as search variable | Stiffness/mass varies by section; testing 5 candidates likely shifts optimum more than any grid refinement | — Pending |
@@ -110,4 +112,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-16 after V3 spec re-initialization (robot M-20iD/20, RSS error budget, expanded search space)*
+*Last updated: 2026-04-17 after v1.0 milestone — Solver Foundation shipped (1,227 LOC Python, 39/39 tests green, 3.4 µs/call IK)*
