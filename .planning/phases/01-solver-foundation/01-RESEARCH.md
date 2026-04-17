@@ -661,24 +661,20 @@ Not applicable — Phase 1 is a greenfield phase creating a new module (`Robot_S
 
 ---
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **OPW parameter values for M-20iD/20 from Fig 3.2a**
+1. **OPW parameter values for M-20iD/20 from Fig 3.2a** (RESOLVED)
    - What we know: Spec Section 11B gives approximate values; reach is 1831mm confirmed.
    - What's unclear: Exact c1, c2, c3, a1 values from the Fig 3.2a image dimensions; the PDF has raster images not text.
-   - Recommendation: Plan Wave 0 task to measure Fig 3.2a from the PDF file. Provide both the spec approximate values and the validation suite as the plan deliverable — the validation suite outcome determines which parameters survive.
+   - Resolution: Spec approximate values used as starting point in config.py (a1=75mm, c1=425mm, c2=840mm, c3=215mm, c4=90mm). Per D-06, the validation suite (FK->IK round-trips + operating space envelope) is the arbiter. Plan 01-02 Task 3 (human-verify checkpoint) requires manual comparison against Fig 3.2a before Phase 2. Parameters are marked [ASSUMED] in config.py until checkpoint approved.
 
-2. **M-20iD/20 URDF in ros-industrial/fanuc_experimental**
+2. **M-20iD/20 URDF in ros-industrial/fanuc_experimental** (RESOLVED)
    - What we know: main `fanuc` repo has M-20iA and M-20iB, not M-20iD. Research could not load fanuc_experimental directory listing.
-   - What's unclear: Whether fanuc_experimental contains M-20iD support.
-   - Recommendation: Wave 0 task should check `https://github.com/ros-industrial/fanuc_experimental` directory listing for `fanuc_m20id_support` package. Budget 30 minutes. If found, extract link lengths as cross-check for config.py assumptions A1–A3.
+   - Resolution: fanuc_experimental not confirmed to have M-20iD/20 URDF. Proceeding with manual extraction from Fig 3.2a per D-04 (manual dimensions are authoritative). If URDF is discovered later, it serves only as a cross-check per D-05.
 
-3. **py-opw-kinematics vs custom pybind11 build decision**
-   - What we know: py-opw-kinematics achieves 3.16 µs/call (exceeds target), is pip-installable, handles 8 solutions, supports convention offsets/flips. D-08 permits using it if it passes validation.
-   - What's unclear: Whether the Rust library's sign conventions exactly match the M-20iD/20 manual dimensions without `offsets`/`flip_axes` adjustment.
-   - Recommendation: Plan Wave 0 task to attempt py-opw-kinematics validation first. If round-trip tests pass, use it. If FK round-trips fail or sign convention adjustment is impossible through `offsets`/`flip_axes`, fall back to custom pybind11. The planner should include both tracks as conditional tasks.
-
----
+3. **py-opw-kinematics vs custom pybind11 build decision** (RESOLVED)
+   - What we know: py-opw-kinematics achieves 3.16 us/call (exceeds target), is pip-installable, handles 8 solutions, supports convention offsets/flips. D-08 permits using it if it passes validation.
+   - Resolution: py-opw-kinematics chosen per D-08 (existing Python binding fork found and verified on this hardware). Plans use py-opw-kinematics 1.0.0 as the solver backend. Custom pybind11 C++ wrapper is the fallback only if Rust solver fails the validation suite. D-03 pybind11 directory layout (CMakeLists.txt, setup.py) is not required since py-opw-kinematics is a PyPI package — the opw_solver/ wrapper module provides the normalized API instead.
 
 ## Environment Availability
 
