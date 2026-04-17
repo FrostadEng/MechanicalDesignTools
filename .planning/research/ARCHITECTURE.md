@@ -1,537 +1,500 @@
-# Architecture: Robot Placement Optimization Pipeline
+# Architecture Patterns
 
-**Domain:** Industrial robot cell — static base placement via IK/collision/singularity reachability analysis
-**Researched:** 2026-04-12
-**Overall confidence:** HIGH — derived from direct inspection of Genesis 0.3.4 source, existing Eden codebase, and project specification
-
----
-
-## System Overview
-
-The Eden Cell Optimizer is a two-phase deterministic pipeline. Phase 0 is a pure Python analysis that produces beam shape envelopes; Phase 1 is a Genesis simulation that uses those envelopes to prove or disprove static robot mounting viability. The two phases are coupled by a single file-based data contract, not by import or shared runtime.
+**Domain:** Python-based robot reachability/placement optimizer, CPU-bound grid search with C++ extensions
+**Project:** EDEN Cell Optimizer — Fanuc M-20iD/20 beam coping cell
+**Researched:** 2026-04-16
+**Confidence:** HIGH (derived directly from V3 spec + established Python/C++ patterns)
 
 ---
 
-## Component Diagram
+## Recommended Architecture
+
+The system splits cleanly into two execution phases that must not be conflated:
+
+**Pre-computation phase** (Steps 0-4): Produces frozen artifacts on disk. Runs once. Output is read-only during search. Each step depends on the previous.
+
+**Search phase** (Steps 5-6): Consumes pre-computed artifacts. Parallel workers are stateless per-cell evaluators. Output is Parquet written per-worker then merged.
+
+**Reporting phase** (Step 7): Reads Parquet, writes human-readable outputs. Single-process, no concurrency needed.
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ Phase 0 — 2D MME Sanity Check                                                │
-│ engineering_tools venv (or Eden venv via sys.path bridge)                    │
-│                                                                              │
-│  ┌─────────────────────┐     ┌───────────────────────┐                       │
-│  │   aisc_loader       │────▶│  shape_filter         │                       │
-│  │   (aisc.py +        │     │  ≤300 lbs/ft           │                       │
-│  │   aisc_shapes.json) │     │  ≤1100mm w/d           │                       │
-│  └─────────────────────┘     └──────────┬────────────┘                       │
-│                                         │                                    │
-│                              ┌──────────▼────────────┐                       │
-│                              │  shape_categorizer    │                       │
-│                              │  3-face / 4-face / L  │                       │
-│                              └──────────┬────────────┘                       │
-│                                         │                                    │
-│                              ┌──────────▼────────────┐                       │
-│                              │  mme_calculator       │                       │
-│                              │  composite bounding   │                       │
-│                              │  box per category     │                       │
-│                              └──────────┬────────────┘                       │
-│                                         │                                    │
-│                              ┌──────────▼────────────┐                       │
-│                              │  matplotlib renderer  │                       │
-│                              │  scaled 2D overlays   │                       │
-│                              └──────────┬────────────┘                       │
-│                                         │                                    │
-└─────────────────────────────────────────┼────────────────────────────────────┘
-                                          │
-                          ┌───────────────▼──────────────┐
-                          │  DATA CONTRACT (file-based)   │
-                          │  phase0_results.json          │
-                          │  {                            │
-                          │    "3face": {                 │
-                          │      "max_width_mm": ...,     │
-                          │      "max_depth_mm": ...,     │
-                          │      "shapes": [...]          │
-                          │    },                         │
-                          │    "4face": { ... },          │
-                          │    "Langle": { ... }          │
-                          │  }                            │
-                          └───────────────┬──────────────┘
-                                          │
-┌─────────────────────────────────────────┼────────────────────────────────────┐
-│ Phase 1 — 3D Genesis Simulation         │                                    │
-│ Robot_Simulations/eden/.venv            │                                    │
-│                                         ▼                                    │
-│  ┌─────────────────────────────────────────────────────────────────────────┐ │
-│  │  scene_builder.py                                                       │ │
-│  │  Builds and holds the Genesis scene. Designed for mesh swap.            │ │
-│  │                                                                         │ │
-│  │  conveyor  ─── gs.morphs.Box proxies (rollers / gaps)                  │ │
-│  │  pinch_unit ── gs.morphs.Box proxy                                      │ │
-│  │  beam_proxy ── gs.morphs.Box at shape MME dimensions                   │ │
-│  │  robot ──────── gs.morphs.URDF(file=..., fixed=True,                   │ │
-│  │                                requires_jac_and_IK=True)               │ │
-│  │                                                                         │ │
-│  │  swap hook: replace Box morphs with gs.morphs.Mesh(file=".step")       │ │
-│  └────────────────────────────┬────────────────────────────────────────────┘ │
-│                               │                                              │
-│  ┌────────────────────────────▼────────────────────────────────────────────┐ │
-│  │  tcp_path_generator.py                                                  │ │
-│  │  Builds ordered lists of (pos, quat) TCP waypoints for a given shape   │ │
-│  │  and work zone.                                                         │ │
-│  │                                                                         │ │
-│  │  3-face shapes (W, S, M, HP, C, MC):                                   │ │
-│  │    top_face_path()    — grid of points on top flange, normal = +Z       │ │
-│  │    left_face_path()   — grid of points on left web face, normal = -Y    │ │
-│  │    right_face_path()  — grid of points on right web face, normal = +Y   │ │
-│  │                                                                         │ │
-│  │  4-face shapes (HSS rect / sq / pipe):                                  │ │
-│  │    top, left, right + bottom_face_path()                                │ │
-│  │    bottom path: TCP approaches through inter-roller gap (Y offset)      │ │
-│  │                                                                         │ │
-│  │  L-angle: two orientations × 2 faces each                               │ │
-│  │                                                                         │ │
-│  │  Path density: ~25mm grid spacing is sufficient for reachability;      │ │
-│  │  not path planning — just presence/absence of IK solution at each pt   │ │
-│  └────────────────────────────┬────────────────────────────────────────────┘ │
-│                               │                                              │
-│  ┌────────────────────────────▼────────────────────────────────────────────┐ │
-│  │  reach_prefilter.py                                                     │ │
-│  │  Trims the 3D search volume before any Genesis evaluation.              │ │
-│  │                                                                         │ │
-│  │  FANUC M-20iD/12L reach radius: 1813mm (from spec sheet)               │ │
-│  │  Robot base search volume: X ∈ [-2500, 2500], Y ∈ [-2500, 2500],      │ │
-│  │                            Z ∈ [0, 1000] mm                             │ │
-│  │                                                                         │ │
-│  │  For each candidate (X, Y, Z):                                          │ │
-│  │    Farthest TCP target = max(dist(base_xy, farthest WZ corner))         │ │
-│  │    Nearest TCP target  = min(dist(base_xy, nearest WZ corner))          │ │
-│  │    Accept if: nearest < reach AND farthest < reach                      │ │
-│  │    (Both zones must be coverable by reach bubble before entering sim)   │ │
-│  │                                                                         │ │
-│  │  Reduction expected: ~70-80% of naive grid eliminated                   │ │
-│  └────────────────────────────┬────────────────────────────────────────────┘ │
-│                               │                                              │
-│  ┌────────────────────────────▼────────────────────────────────────────────┐ │
-│  │  search_loop.py                                                         │ │
-│  │  Orchestrates the evaluation of candidate base positions.               │ │
-│  │                                                                         │ │
-│  │  Input: pre-filtered candidate grid (from reach_prefilter)              │ │
-│  │  Algorithm: Bayesian Optimization (scikit-optimize or scipy minimize)   │ │
-│  │  see Search Loop Architecture section below                             │ │
-│  │                                                                         │ │
-│  │  For each proposed [X, Y, Z]:                                           │ │
-│  │    1. Reposition robot base in Genesis scene (set_pos on robot entity) │ │
-│  │    2. Run evaluator.evaluate(candidate) → (pass/fail, score)           │ │
-│  │    3. If pass: append to results_log with score                         │ │
-│  │    4. Feed result back to BO acquisition function                       │ │
-│  └────────────────────────────┬────────────────────────────────────────────┘ │
-│                               │                                              │
-│  ┌────────────────────────────▼────────────────────────────────────────────┐ │
-│  │  evaluator.py                                                           │ │
-│  │  Core per-candidate evaluation. All Genesis API calls live here.        │ │
-│  │                                                                         │ │
-│  │  For each TCP waypoint in WZ1 path (then WZ2 path):                    │ │
-│  │    qpos, err = robot.inverse_kinematics(                                │ │
-│  │        link=ee_link,                                                    │ │
-│  │        pos=waypoint_pos,                                                │ │
-│  │        quat=waypoint_quat,                                              │ │
-│  │        return_error=True                                                │ │
-│  │    )                                                                    │ │
-│  │    if err[:3] > pos_tol → IK_FAIL                                       │ │
-│  │    robot.set_qpos(qpos)                                                 │ │
-│  │    scene.step()    ← runs collision detection                           │ │
-│  │    contacts = robot.get_contacts(with_entity=pinch_unit)               │ │
-│  │    if contacts > 0 → COLLISION_FAIL                                     │ │
-│  │    J = robot.get_jacobian(link=ee_link)   ← shape (6, n_dofs)          │ │
-│  │    w = sqrt(det(J @ J.T))                  ← Yoshikawa manipulability   │ │
-│  │    if w < singularity_threshold → SINGULARITY_WARN (not hard fail)     │ │
-│  │                                                                         │ │
-│  │  score = mean(w across all valid waypoints) — higher is better         │ │
-│  └────────────────────────────┬────────────────────────────────────────────┘ │
-│                               │                                              │
-│  ┌────────────────────────────▼────────────────────────────────────────────┐ │
-│  │  results_logger.py                                                      │ │
-│  │  Appends to a CSV/JSON log every time a valid pose is found.            │ │
-│  │  Columns: X, Y, Z, score, wz1_pass_rate, wz2_pass_rate, timestamp      │ │
-│  │  Final output sorted by score (descending).                             │ │
-│  └─────────────────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────────────┘
+[Pre-computation] ──────────────────────────────────────────────────────
+  OPW Solver (C++/pybind11)
+       │
+       ▼
+  Tool Table Generator ──→ valid_tools.json
+       │
+       ▼
+  Riser Pre-computer   ──→ riser_validity_table.json
+       │
+       ▼
+  Collision Env Builder ──→ (in-memory scene defs, wall/conveyor planes)
+       │
+       ▼
+  Target DB Generator  ──→ target_database/ (frozen Parquet/JSON)
+
+[Search phase] ──────────────────────────────────────────────────────────
+  Phase A Coordinator
+       │ spawns 14 workers
+       ├──→ Worker (cell evaluator) ──→ phase_a_worker_N.parquet
+       ├──→ Worker (cell evaluator) ──→ phase_a_worker_N.parquet
+       └──→ ...
+       │ merge + rank
+       ▼
+  Top-500 Placement Selector ──→ top_500_placements.json
+
+  Phase B Coordinator
+       │ spawns 14 workers
+       ├──→ Worker (cell evaluator) ──→ phase_b_worker_N.parquet
+       └──→ ...
+       │ merge + rank
+       ▼
+  Best Config Selector ──→ best_config.json, top_10_configs.json
+
+[Reporting phase] ───────────────────────────────────────────────────────
+  Report Generator
+       │
+       ├──→ reachability_heatmap.json
+       ├──→ cope_report.json
+       ├──→ gap_report.json
+       ├──→ error_budget_report.json
+       └──→ visualization/ (URDF scene renders)
 ```
+
+---
+
+## Component Boundaries
+
+### Component 1: OPW Kinematic Solver (`solver/`)
+
+**Responsibility:** Wraps the C++ OPW library via pybind11. Provides FK, IK, and joint-limit filtering. Validates round-trips.
+
+**Communicates with:** Tool Table Generator (at startup), all search workers (at worker init, not per-call).
+
+**Boundary rule:** This component has no business logic. It is a pure kinematic primitive. It knows nothing about beams, tools, placements, or scoring.
+
+**Critical implementation note — pybind11 and multiprocessing:**
+
+Python's `multiprocessing` module uses `fork` by default on Linux. `fork` copies the parent process memory including any already-imported C extension modules. This is generally safe for read-only C++ state, but the pybind11 module should be imported at the top of the worker module (not inside the worker function), so the import happens once in the forked child after it initializes. The preferred pattern is:
+
+```python
+# worker_module.py  ← imported by each spawned process
+import opw_kinematics  # imported at module level, not inside the worker function
+
+def evaluate_cell(cell_args):
+    # opw_kinematics is already imported; no re-import cost
+    solutions = opw_kinematics.inverse(pose, params)
+    ...
+```
+
+Do NOT pickle/unpickle pybind11 objects across process boundaries. Pass plain Python data (dicts, numpy arrays) as cell arguments. The OPW parameter struct should be constructed once per worker from a plain dict, not shared as a C++ object via the queue.
+
+**Confidence:** HIGH — this is the standard pattern for pybind11 + multiprocessing on Linux fork.
+
+---
+
+### Component 2: Tool Table Generator (`precompute/tool_table.py`)
+
+**Responsibility:** Sweeps (torch_angle × boom_length × puck_drop), applies wrist load diagram, moment/inertia gates, boom deflection gate. Clusters survivors. Writes `valid_tools.json`.
+
+**Communicates with:** OPW Solver (indirectly — needs TCP transform per tool). Nothing else.
+
+**Inputs:** Torch puck STEP geometry constants (hardcoded or loaded from config), robot wrist load diagram boundaries (from datasheet, hardcoded or loaded).
+
+**Outputs:** `valid_tools.json` — read by search workers, never written after this step completes.
+
+**Boundary rule:** This component does not know about placements, beams, or the search grid. It only knows about the tool attached to the robot flange.
+
+---
+
+### Component 3: Riser Pre-computer (`precompute/riser_table.py`)
+
+**Responsibility:** Closed-form superposition (column bending + baseplate rotation), modal frequency check. Builds lookup table of valid (section, height) pairs.
+
+**Communicates with:** Nothing at runtime. Pure numerical computation. Reads section properties (hardcoded or from a materials config).
+
+**Inputs:** 5 riser section properties, 8 discrete heights, robot mass, conservative anchor bolt stiffness.
+
+**Outputs:** `riser_validity_table.json` — a simple dict mapping (section_id, height_mm) → bool. Used by search workers as a lookup, not recomputed per cell.
+
+**Boundary rule:** This component has no dependency on IK, collision, or beams. It runs in seconds and is structurally independent of all search logic.
+
+---
+
+### Component 4: Collision Environment (`collision/scene.py`)
+
+**Responsibility:** Manages python-fcl BVH collision objects. Provides two categories of objects:
+
+1. **Static objects** (built once, reused for entire run): wall planes (X = ±515 mm), conveyor plane (Z = 838 mm), ground plane (Z = 0). These are FCL `Plane` or `Box` primitives loaded once at startup.
+
+2. **Per-beam dynamic objects** (created per beam evaluation): beam mesh extruded from AISC cross-section, placed at datum roller position on conveyor surface. Added to scene before evaluating that beam's poses, removed (or replaced) for the next beam.
+
+**Critical architecture decision — scene ownership per worker:**
+
+Each multiprocessing worker must own its own FCL collision scene. python-fcl uses C++ objects internally and is not safe to share across process boundaries. The pattern is:
+
+```python
+# In worker initializer (called once per worker at pool startup)
+def worker_init(static_scene_config):
+    global _scene
+    _scene = CollisionScene()
+    _scene.build_static_objects(static_scene_config)
+
+# In cell evaluator (called per cell)
+def evaluate_cell(cell_args):
+    beam_mesh = build_beam_mesh(cell_args.beam_id)
+    _scene.set_active_beam(beam_mesh)   # replaces previous beam
+    result = _scene.check(tool_mesh, robot_links)
+    _scene.clear_active_beam()
+```
+
+The `static_scene_config` passed to the initializer must be a plain serializable dict (plane normals, offsets, dimensions) — not an FCL object.
+
+**Communicates with:** Search Workers (owns scene), AISC beam database (reads cross-section geometry).
+
+**Boundary rule:** Collision scene management is isolated from IK and scoring. The cell evaluator queries the scene with a tool+robot pose; the scene returns a boolean (collision / no-collision). No scoring logic lives here.
+
+---
+
+### Component 5: Target Database Generator (`precompute/target_db.py`)
+
+**Responsibility:** Generates all beam pose sequences (straight-cut sweeps, cope trajectories). Applies clearance rules. Ranks beams by difficulty. Freezes everything to disk.
+
+**Communicates with:** AISC beam database (queries cross-sections), Collision Environment (uses static scene to cull target points that immediately violate walls), nothing else.
+
+**Outputs:** `target_database/` directory tree — JSON files per beam shape. Read-only during all search phases.
+
+**Boundary rule:** Target generation is completely independent of robot placement. A target pose is a 6-DOF end-effector goal in world frame, independent of where the robot sits. The search engine applies the placement transform and queries IK.
+
+---
+
+### Component 6: Search Workers (`search/worker.py`)
+
+**Responsibility:** Stateless cell evaluators. Each worker evaluates one (tool_id, base_x, base_y, base_yaw, riser_section, riser_height) cell and returns a scored result row.
+
+**What a worker holds in memory (loaded once at init, never modified):**
+- `valid_tools.json` contents as a list of dicts
+- `riser_validity_table.json` as a lookup dict
+- `target_database/` contents for all beams (loaded fully into RAM — ~hundreds of MB at most)
+- Own FCL collision scene (static objects only)
+- Imported pybind11 OPW module
+
+**What a worker receives per cell (passed as plain serializable data):**
+- (tool_id, base_x, base_y, base_yaw, riser_section, riser_height) — integers and floats only
+
+**What a worker returns per cell:**
+- A dict of scalar values (reachability_pct, manipulability_mean, hardware_cost, tcp_error_estimate, pass/fail flags). No C++ objects.
+
+**Filter cascade (in order, cheapest first):**
+1. Riser validity lookup (dict lookup, ~0 cost) — ~30% rejection
+2. Geometric reach envelope (scalar distance, ~1 μs) — ~60% of remaining
+3. 8-point IK spot check (~0.03 ms total) — ~20% of remaining
+4. Full beam evaluation, reach-hardest-first, early termination (~0.35 s avg) — final scoring
+
+**Early termination split (V3 refinement):** Workers track failure reason per beam. A "reach fail" (IK globally infeasible at this placement for this beam) triggers early exit. A "geometry fail" (IK works elsewhere but collision/joint-limit on specific faces) does not trigger early exit — continue to next beam.
+
+---
+
+### Component 7: Search Coordinators (`search/phase_a.py`, `search/phase_b.py`)
+
+**Responsibility:** Builds the cell list, distributes to workers, collects results, writes per-worker Parquet files, merges to final Parquet, selects top-N outputs.
+
+**Parquet strategy — write-per-worker then merge:**
+
+This is the correct pattern for this workload. The alternative (queue-based single writer) introduces a serialization bottleneck that wastes CPU time on the i5-13600K. The recommended structure:
+
+```python
+# Each worker writes its own Parquet shard when it completes a batch
+# (e.g., every 1000 cells, or at process exit)
+def worker_write_shard(results_batch, worker_id, phase, shard_idx):
+    path = f"results/{phase}_worker_{worker_id}_shard_{shard_idx}.parquet"
+    table = pa.Table.from_pylist(results_batch)
+    pq.write_table(table, path)
+
+# Coordinator merges after all workers finish
+def merge_phase_results(phase):
+    shards = glob(f"results/{phase}_worker_*.parquet")
+    tables = [pq.read_table(s) for s in shards]
+    merged = pa.concat_tables(tables)
+    pq.write_table(merged, f"results/{phase}_results.parquet")
+```
+
+Each worker writes to a unique path (worker_id + shard_idx) — no file locking needed. The merge step at coordinator level is fast (column concatenation) and runs once after the pool completes.
+
+**Why not a queue-based single writer:** At ~0.35 s/cell and 14 workers, the writer would receive ~40 result dicts/second. This is trivially handleable, but the queue add/get round-trip adds latency per cell that compounds to hours over 190k cells. Write-per-worker eliminates this entirely.
+
+**Communicates with:** Workers (via multiprocessing.Pool.imap_unordered), disk (Parquet shards).
+
+---
+
+### Component 8: Report Generator (`reporting/`)
+
+**Responsibility:** Reads `phase_b_results.parquet`, generates all human outputs. Single-process. No concurrency.
+
+**Outputs:** `best_config.json`, `top_10_configs.json`, `reachability_heatmap.json`, `cope_report.json`, `gap_report.json`, `error_budget_report.json`, URDF scene renders.
+
+**Communicates with:** Parquet results (read), target database (read for gap analysis), URDF files (read for visualization).
+
+**Boundary rule:** Reporting is purely transformational. It reads frozen data and writes formatted outputs. No recomputation.
 
 ---
 
 ## Data Flow
 
 ```
-aisc_shapes.json
-      │
-      ▼
-[Phase 0] filter → categorize → MME compute → PNG exports
-                                     │
-                           phase0_results.json
-                                     │
-                                     ▼
-[Phase 1] scene_builder builds Genesis scene (once, not per candidate)
-                                     │
-                           tcp_path_generator produces waypoint lists
-                           (once per shape category, reused across candidates)
-                                     │
-                           reach_prefilter eliminates ~75% of candidates
-                                     │
-                           search_loop feeds [X,Y,Z] candidates to evaluator
-                                     │
-                           evaluator runs IK → collision → Jacobian per waypoint
-                                     │
-                           results_logger appends each passing candidate
-                                     │
-                           Final sorted results table (CSV + JSON)
+[Disk] valid_tools.json ──────────────────────────────────┐
+[Disk] riser_validity_table.json ─────────────────────────┤
+[Disk] target_database/ ──────────────────────────────────┤
+                                                           │ (read at worker init)
+                                                     ┌─────▼──────┐
+                  [Coordinator: cell list] ──────────→│   Worker   │──→ result dict
+                                                     └─────┬──────┘
+                                                           │ (batched write)
+                                                     [per-worker .parquet shard]
+                                                           │
+                                                     [merge step]
+                                                           │
+                                                   [phase_X_results.parquet]
+                                                           │
+                                                   [Report Generator]
+                                                           │
+                                              [JSON/heatmap/visualization outputs]
 ```
 
----
-
-## Phase 0 → Phase 1 Integration Contract
-
-Phase 0 writes a single JSON file. Phase 1 reads it at startup. There is no import dependency — this allows Phase 0 to run in either venv.
-
-**Recommended schema for `phase0_results.json`:**
-
-```json
-{
-  "generated": "2026-04-12T...",
-  "constraints": {
-    "max_weight_lbs_per_ft": 300,
-    "max_dimension_mm": 1100
-  },
-  "categories": {
-    "3face": {
-      "mme_width_mm": 410.0,
-      "mme_depth_mm": 530.0,
-      "shape_count": 147,
-      "shapes": ["W44X335", "W40X431", "..."]
-    },
-    "4face": {
-      "mme_width_mm": 305.0,
-      "mme_depth_mm": 305.0,
-      "shape_count": 62,
-      "shapes": ["HSS16X16X5/8", "..."]
-    },
-    "Langle_long_near_datum": {
-      "mme_width_mm": 203.0,
-      "mme_depth_mm": 152.0,
-      "shape_count": 18,
-      "shapes": ["L8X6X1", "..."]
-    },
-    "Langle_short_near_datum": {
-      "mme_width_mm": 152.0,
-      "mme_depth_mm": 203.0,
-      "shape_count": 18,
-      "shapes": ["L8X6X1", "..."]
-    }
-  }
-}
-```
-
-Phase 1 iterates over `categories`, builds one beam proxy per category (at MME dimensions), and runs the full search loop for each. This means 4 search passes total for the standard set of categories.
-
-**Import bridging for Phase 0:** The simplest approach is to add `engineering_tools/` to `sys.path` at the top of `phase0_2d_mme.py` when running inside the Eden venv, or copy `aisc_shapes.json` + `aisc.py` into a local `lib/` folder under the experiment. Do not install `mech_core` as a package into the Eden venv — it pulls in PySide6 and other GUI dependencies.
-
----
-
-## Scene Builder Architecture — Mesh Swap Design
-
-The scene builder must be structured so block proxies can be replaced with STEP meshes without changing evaluation code. The correct pattern is a factory function that accepts a `mesh_config` dict:
-
-```python
-# scene_builder.py
-
-PROXY_MODE = "box"      # for Phase 1 initial runs
-MESH_MODE  = "step"     # for later CAD-accurate runs
-
-def build_scene(mesh_config: dict, robot_base_pos=(0, 0, 0)) -> dict:
-    """
-    Returns handles to all named entities so evaluator can reference them.
-    mesh_config keys: conveyor, pinch_unit, beam_3face, beam_4face
-    mesh_config values: either {"mode": "box", "size": [...]} 
-                        or     {"mode": "step", "file": "path/to/mesh.step"}
-    """
-    scene = gs.Scene(...)
-
-    conveyor = _add_entity(scene, mesh_config["conveyor"], ...)
-    pinch_unit = _add_entity(scene, mesh_config["pinch_unit"], ...)
-    beam = _add_entity(scene, mesh_config["beam"], ...)
-
-    robot = scene.add_entity(
-        gs.morphs.URDF(
-            file=robot_urdf_path,
-            pos=robot_base_pos,
-            fixed=True,
-            requires_jac_and_IK=True,   # default True for URDF — confirmed
-        )
-    )
-
-    scene.build()
-
-    return {
-        "scene": scene,
-        "robot": robot,
-        "conveyor": conveyor,
-        "pinch_unit": pinch_unit,
-        "beam": beam,
-        "ee_link": robot.get_link("J6"),
-    }
-```
-
-**Critical constraint:** `scene.build()` is called once. Genesis JIT-compiles the scene at build time. The robot base position cannot be changed by rebuilding — it must be set via `robot.set_pos()` or by rebuilding the scene. Rebuilding per candidate is too expensive. Use `robot.set_pos()` to reposition between candidates, then call `scene.reset()` to flush contact state.
-
-**STEP mesh swap:** When real meshes arrive, only `mesh_config` values change. The evaluator, search loop, and results logger are untouched. This is the sole purpose of the factory pattern.
-
----
-
-## TCP Path Generation Architecture
-
-TCP path generation is the translation of geometry (face + work zone bounds) into a list of `(pos_world, quat_world)` tuples the IK solver can consume.
-
-**Design rule:** Path generation is pure Python / NumPy. No Genesis calls. Generate all paths before the search loop starts, since they are the same for every candidate base position.
-
-```
-WorkZone = namedtuple("WorkZone", ["start_m", "end_m"])  # meters, from datum
-WZ1 = WorkZone(start_m=+0.457, end_m=+1.219)   # +1.5ft to +4.0ft
-WZ2 = WorkZone(start_m=-0.457, end_m=-0.914)   # -1.5ft to -3.0ft
-```
-
-**Face normal convention (robot approaches from outside):**
-
-| Face | Normal direction | TCP Z-axis (approach) |
-|------|-----------------|----------------------|
-| Top | +Z | -Z (approach from above) |
-| Left web | -Y | +Y |
-| Right web | +Y | -Y |
-| Bottom | -Z | +Z (approach from below, through roller gap) |
-
-**Grid density recommendation:** 50mm along the length axis (beam axis), 30mm across the face width. This gives ~300-600 points per face per work zone depending on shape. Each IK call takes ~5ms in Genesis; 2000 waypoints per candidate = ~10 seconds per candidate on GPU. The reach prefilter reduces candidates to ~200-500 from a naive 10,000-point grid, giving a total search budget of roughly 30-90 minutes.
-
-**WZ2 path offset logic:** WZ2 evaluates the robot approaching from the opposite side of the pinch unit. The TCP paths for WZ2 are geometrically identical to WZ1 paths but Z-mirrored in the longitudinal (X) axis around the datum. The transition between WZ1 and WZ2 (the 3ft dead zone) is not evaluated — this is correct per specification, since the assumption is the robot moves to a home position and re-approaches WZ2 on a wider arc.
-
----
-
-## Search Loop Architecture
-
-**Recommendation: Bayesian Optimization over the reach-prefiltered region.**
-
-The rationale and implementation specifics:
-
-### Why not pure grid scan
-A 25mm grid over X ∈ [-2500, 2500], Y ∈ [-2500, 2500], Z ∈ [0, 1000] produces ~800,000 candidates before prefilter. Even after ~75% prefilter reduction, ~200,000 remain. At 10 seconds per evaluation this is infeasible. Grid scan is only appropriate for the final fine-grained sweep around a known good region found by BO.
-
-### Why not random sampling
-Random sampling has no convergence guarantee. It is useful as a fallback if BO libraries are unavailable but should not be the primary strategy.
-
-### Recommended: Two-stage approach
-
-**Stage 1 — Bayesian Optimization over coarse grid (50mm step)**
-Use `scipy.optimize.differential_evolution` or `scikit-optimize.gp_minimize` to propose next candidate based on acquisition function. Target: ~200 evaluations to find the best region.
-
-```
-from skopt import gp_minimize
-from skopt.space import Real
-
-space = [
-    Real(x_min, x_max, name='X'),
-    Real(y_min, y_max, name='Y'),
-    Real(0.0, 1000.0, name='Z'),
-]
-
-result = gp_minimize(
-    func=evaluator_objective,   # returns -score (minimize negative = maximize score)
-    dimensions=space,
-    n_calls=200,
-    n_initial_points=20,        # random exploration before GP fits
-    acq_func='EI',              # Expected Improvement
-    noise=0.01,
-)
-```
-
-`evaluator_objective` must return a scalar: return `-score` if reachable, return `+10.0` (high penalty) if any failure condition triggered.
-
-**Stage 2 — Dense grid scan around BO optimum**
-Once Stage 1 identifies the best [X, Y] neighborhood (±100mm window), run a 10mm-step grid scan over that window at all Z heights. This finds the true discrete optimum within the continuous BO approximation.
-
-**`scikit-optimize` availability:** Must be installed in the Eden venv. Add `scikit-optimize>=0.9.0` to `Robot_Simulations/eden/requirements.txt`. If import fails, fall back to a pure random search with 500 samples as a degraded mode.
-
----
-
-## Manipulability Index Computation
-
-The Yoshikawa manipulability measure is the standard metric for 6-DOF robots. It quantifies how far the robot configuration is from a singularity.
-
-**Definition:**
-```
-w(q) = sqrt( det( J(q) @ J(q).T ) )
-```
-
-Where `J(q)` is the 6×n spatial Jacobian at joint configuration q.
-
-- `w = 0`: robot is exactly at a singularity (J is rank-deficient)
-- `w > threshold`: robot has sufficient dexterity to move in all 6 DOF
-
-**Genesis API for this:**
-```python
-# After robot.set_qpos(qpos) and scene.step():
-J = robot.get_jacobian(link=ee_link)  # shape: (6, 6) for 6-DOF robot
-import torch
-w = torch.sqrt(torch.det(J @ J.T)).item()
-```
-
-**Important:** `get_jacobian` requires `morph.requires_jac_and_IK=True` at scene build time. For `gs.morphs.URDF`, this defaults to `True` — confirmed from Genesis 0.3.4 source (`options/morphs.py` line 897). No extra flag needed when loading via URDF.
-
-**Singularity threshold:** For the FANUC M-20iD/12L, a practical threshold is `w < 0.001`. Configurations near J5 = 0 (wrist singularity) or near full arm extension (elbow singularity) will produce `w` near zero. Log these as warnings, not hard failures — the manipulability score captures them numerically in the ranking.
-
-**Use in scoring:** The final score for a candidate pose is the mean of `w` across all valid (IK-passing, collision-free) waypoints. Poses with higher mean `w` are preferred because the robot retains more dexterity throughout the full sweep.
-
----
-
-## Dual Work Zone (WZ1 + WZ2) Evaluation
-
-Both work zones must pass for a candidate position to be valid. The recommended evaluation order and failure semantics:
-
-```
-evaluate_candidate(X, Y, Z):
-    1. Reposition robot base
-    2. Run WZ1 path evaluation
-       - If any IK failure: return FAIL_WZ1_IK
-       - If any collision: return FAIL_WZ1_COLLISION
-       - Collect w values for all valid points
-    3. Run WZ2 path evaluation (separate from WZ1 — no transition penalty)
-       - If any IK failure: return FAIL_WZ2_IK
-       - If any collision: return FAIL_WZ2_COLLISION
-       - Collect w values
-    4. score = mean(w_WZ1 + w_WZ2)
-    5. return PASS, score
-```
-
-**WZ2 physical model:** WZ2 is behind the pinch unit (negative X from datum). The beam extends through the pinch unit; the robot approaches from the same side. The pinch_unit entity is static. Collision checks between the robot arm and the pinch_unit entity are the critical check for WZ2. The beam proxy for WZ2 is at the same Y,Z as WZ1 (same beam cross-section), just at a different X range.
-
-**WZ2 outer bound derivation (from spec):**
-```
-WZ1: +1.5ft to +4.0ft  →  +457mm to +1219mm
-WZ2 near bound: -1.5ft →  -457mm (third offset)
-Dead zone: 3.0ft       →  914mm
-WZ2 far bound: -(1.5 + 3.0)ft = -4.5ft → -1372mm
-```
+**Direction of data flow is strictly downward.** No component writes back to a higher-level artifact. Pre-computation outputs are write-once, read-many.
 
 ---
 
 ## Suggested Build Order
 
-### Step 1 — Phase 0 Script
-**File:** `experiments/Beam_Coping_Machine/phase0_2d_mme/phase0_2d_mme.py`
+The dependency graph is mostly linear with one parallel opportunity (Tool Table and Riser Table are independent of each other):
 
-Build and validate before touching Genesis:
-1. Import `aisc.py` via `sys.path` bridge or local copy
-2. Filter shapes to PCR42 constraints
-3. Categorize into 3-face / 4-face / L-angle groups
-4. Compute MME per category
-5. Render `matplotlib` scaled overlays, export PNGs
-6. Write `phase0_results.json`
+```
+Step 0: OPW Solver (C++/pybind11)
+        └── BLOCKS: everything (IK used in tool table, target gen, and all search)
 
-Engineering review of PNGs and JSON before proceeding.
+Step 1a: Tool Table Generator (depends on Step 0 for TCP transform validation)
+Step 1b: Riser Pre-computer (independent of Step 0 — pure beam mechanics)
+         (Steps 1a and 1b can be built in parallel)
 
-### Step 2 — Scene Builder (no search yet)
-**File:** `experiments/Beam_Coping_Machine/phase1_3d_sim/scene_builder.py`
+Step 2: Collision Environment (depends on AISC beam database availability)
+        (can be built in parallel with Steps 1a/1b)
 
-Build the scene factory and verify in viewer:
-1. Conveyor box proxies with roller gap modeled
-2. Pinch unit box proxy at correct datum position
-3. FANUC URDF loaded with `fixed=True`, `requires_jac_and_IK=True`
-4. Beam proxy at 3-face MME dimensions for visual check
-5. Verify IK returns a solution for a known reachable TCP point
-6. Verify `get_jacobian` returns a non-singular matrix at that point
+Step 3: Target DB Generator (depends on Steps 0, 2)
+        └── Needs collision scene to cull invalid poses
+        └── Needs OPW to verify IK feasibility of pose types (optional but recommended)
 
-### Step 3 — TCP Path Generator
-**File:** `experiments/Beam_Coping_Machine/phase1_3d_sim/tcp_path_generator.py`
+Step 4: Search Worker (depends on Steps 0, 1a, 1b, 2, 3)
+        └── Pulls in all pre-computation outputs
+        └── This is the highest-value component — everything else feeds it
 
-Pure NumPy, no Genesis dependency. Write and unit-test independently:
-1. `generate_3face_paths(mme, wz1, wz2)` → `{wz: {face: [(pos, quat)]}}` 
-2. `generate_4face_paths(mme, wz1, wz2)` → same structure
-3. Visualize one path in matplotlib (top view) to confirm geometry
+Step 5: Search Coordinators (depends on Step 4)
+        └── Phase A coordinator: builds cell list over rep tools × full placement grid
+        └── Phase B coordinator: builds cell list over all tools × top-500 placements
 
-### Step 4 — Reach Prefilter
-**File:** `experiments/Beam_Coping_Machine/phase1_3d_sim/reach_prefilter.py`
+Step 6: Report Generator (depends on Step 5 outputs)
+        └── Reads frozen Parquet; no search logic
+```
 
-Pure NumPy, no Genesis dependency:
-1. Load FANUC reach radius (1813mm from spec)
-2. Generate coarse candidate grid
-3. Filter by reach bubble against WZ1 and WZ2 corners
-4. Print reduction statistics
+**Implication for roadmap phases:** The natural phase boundaries are:
 
-### Step 5 — Evaluator
-**File:** `experiments/Beam_Coping_Machine/phase1_3d_sim/evaluator.py`
-
-First Genesis-heavy component:
-1. Accepts a candidate position and paths as input
-2. Runs IK, collision, Jacobian checks per waypoint
-3. Returns structured result dict, not raw Genesis objects
-4. Test on 3-5 manually chosen known-good and known-bad positions
-
-### Step 6 — Search Loop + Results Logger
-**Files:** `search_loop.py`, `results_logger.py`
-
-Wire BO acquisition to evaluator:
-1. Install `scikit-optimize` in Eden venv
-2. Implement BO Stage 1 (coarse)
-3. Implement dense grid Stage 2 around BO result
-4. Log all candidates and results to `results/run_YYYYMMDD_HHMMSS.json`
-5. Print final sorted table
+- **Phase 0 (solver):** Build and validate the C++ OPW solver with pybind11 wrapper. This is the hardest infrastructure piece and blocks everything. Validate FK→IK round-trips before moving on — a bad kinematic model invalidates all downstream results.
+- **Phase 1 (pre-computation):** Build tool table, riser table, collision environment, target database sequentially (or in parallel for tool/riser). Each produces a frozen artifact that is unit-testable in isolation.
+- **Phase 2 (search infrastructure):** Build the worker + coordinator skeleton with a minimal test grid before running the real 23-hour search. Verify Parquet writes/reads, filter cascade, and multiprocessing process lifecycle.
+- **Phase 3 (full search runs):** Run Phase A and Phase B. These are execution phases, not build phases — infrastructure must be complete and validated first.
+- **Phase 4 (reporting):** Generate all outputs from Phase B Parquet.
 
 ---
 
-## Key Genesis API Facts (confirmed from v0.3.4 source)
+## Patterns to Follow
 
-| API | Location | Notes |
-|-----|----------|-------|
-| `robot.inverse_kinematics(link, pos, quat, return_error=True)` | `rigid_entity.py:1063` | Returns `(qpos, error_pose)`. error_pose[:3] = pos error in meters. |
-| `robot.get_jacobian(link)` | `rigid_entity.py:862` | Returns tensor shape `(6, n_dofs)`. Requires `requires_jac_and_IK=True`. |
-| `robot.get_contacts(with_entity=...)` | `rigid_entity.py:2564` | Returns dict with `valid_mask`. Check `valid_mask.any()` for collision. |
-| `gs.morphs.URDF(requires_jac_and_IK=True)` | `options/morphs.py:897` | Default is `True` — IK enabled automatically for URDF loads. |
-| `gs.morphs.URDF(fixed=True)` | `options/morphs.py:814` | Required for fixed-base robots. |
-| Manipulability | computed from Jacobian | `w = sqrt(det(J @ J.T))`. No native Genesis method — compute in PyTorch. |
+### Pattern 1: Worker Initializer for Shared Read-Only State
+
+Load large read-only data (tool table, target database) once per worker at pool startup using `multiprocessing.Pool(initializer=..., initargs=...)`. Store in a module-level global. Never pass large data through the task queue.
+
+```python
+_tools = None
+_targets = None
+_scene = None
+
+def worker_init(tools_path, targets_path, static_scene_config):
+    global _tools, _targets, _scene
+    import opw_kinematics  # pybind11 module — import here in worker context
+    _tools = load_json(tools_path)
+    _targets = load_target_database(targets_path)
+    _scene = CollisionScene()
+    _scene.build_static_objects(static_scene_config)
+
+def evaluate_cell(cell):
+    tool = _tools[cell['tool_id']]
+    ...
+```
+
+**Why:** On Linux fork, the parent's memory is copy-on-write. If the worker only reads, the OS shares the physical pages across all 14 workers. Loading 200 MB of target data once in the parent (before the pool spawns) and letting fork copy-on-write is more memory-efficient than loading per-worker. However, loading in each worker initializer is safer and avoids fork-safety concerns with some C extensions — prefer per-worker load unless RAM is constrained.
+
+### Pattern 2: Filter Cascade with Structured Early Returns
+
+Implement each filter as a function returning `(passed: bool, reason: str)`. Compose in order from cheapest to most expensive. Log rejection reason per cell for diagnostics.
+
+```python
+def evaluate_cell(cell) -> dict:
+    if not riser_validity[cell.section][cell.height]:
+        return {'passed': False, 'reason': 'riser_deflection', 'score': None}
+
+    if not geometric_reach_check(cell):
+        return {'passed': False, 'reason': 'reach_envelope', 'score': None}
+
+    if not spot_check_ik(cell):
+        return {'passed': False, 'reason': 'spot_ik', 'score': None}
+
+    return full_beam_evaluation(cell)  # expensive path
+```
+
+This structure makes filter rejection rates trivially measurable: count `reason` values in the result Parquet.
+
+### Pattern 3: Beam Evaluation with Separated Failure Modes
+
+The V3 early-termination refinement is architecturally important. The beam evaluator must track two counters per config:
+
+- `reach_fail_count`: IK infeasible globally (placement too far/close for this beam's scale)
+- `geometry_fail_count`: IK feasible elsewhere but collision/joint-limit on specific trajectory
+
+Terminate early only when `reach_fail_count` triggers the threshold (e.g., 3 largest beams all fail on reach). Continue through geometry fails. Implement this as a named state machine, not inline boolean logic, so it is testable.
+
+### Pattern 4: Per-Worker Parquet Shards
+
+Each worker writes to `results/{phase}_worker_{pid}.parquet` using `pyarrow.parquet.write_table`. Workers never write to the same file. The coordinator's merge step runs serially after `pool.join()`. This eliminates all concurrency concerns for I/O.
+
+Define a fixed schema for the result row (as a `pyarrow.schema`) before the run. Workers validate each result dict against this schema before writing. This catches data type mismatches early rather than at merge time.
 
 ---
 
-## Component Boundaries
+## Anti-Patterns to Avoid
 
-| Component | Responsibility | Has Genesis Dependency | Inputs | Outputs |
-|-----------|---------------|----------------------|--------|---------|
-| `phase0_2d_mme.py` | Shape filtering, MME compute, PNG export | No | `aisc_shapes.json` | PNGs, `phase0_results.json` |
-| `scene_builder.py` | Genesis scene construction, entity handles | Yes | mesh_config dict | scene + entity handle dict |
-| `tcp_path_generator.py` | Waypoint geometry computation | No | MME dims, WZ bounds | `{zone: {face: [(pos,quat)]}}` |
-| `reach_prefilter.py` | Geometric pre-filtering of candidate grid | No | WZ corners, reach radius | filtered candidate list |
-| `evaluator.py` | Per-candidate IK/collision/Jacobian evaluation | Yes | scene handles, candidate pos, paths | result dict `{pass, score, w_mean}` |
-| `search_loop.py` | BO-driven candidate proposal | No (calls evaluator) | prefiltered candidates | candidate stream |
-| `results_logger.py` | Log append + final sort | No | result dicts | CSV + JSON output |
+### Anti-Pattern 1: Sharing C++ Objects Across Process Boundaries
+
+**What:** Placing pybind11 objects (OPW solver instance, FCL scene, numpy arrays backed by C++ memory) in a `multiprocessing.Manager()` dict or passing them through a `Queue`.
+
+**Why bad:** pybind11 objects are not pickle-safe by default. This causes either silent data corruption or hard crashes. On Linux, fork copies the memory space correctly, but serialization through a queue does not.
+
+**Instead:** Import pybind11 modules per-worker. Construct C++ objects (OPW params, FCL scene) per-worker in the initializer. Pass only plain Python data (dicts, lists, numpy arrays of primitives) through the cell queue.
+
+### Anti-Pattern 2: Reloading Target Database Per Cell
+
+**What:** Opening and parsing beam JSON files inside `evaluate_cell()`.
+
+**Why bad:** With ~190k full-evaluation cells × however many beams per cell, filesystem I/O dominates. A single W-shape JSON file parsed 190k times costs gigabytes of redundant I/O.
+
+**Instead:** Load all target database files once in `worker_init()`. Keep the full beam → poses mapping in a module-level dict for the worker's lifetime.
+
+### Anti-Pattern 3: Mixing Pre-computation and Search Logic
+
+**What:** Computing riser deflection or tool clustering inside the search worker's cell evaluator.
+
+**Why bad:** These computations are cell-independent. Recomputing them per cell wastes time and makes the worker harder to test. A deflection check that takes 1 ms per cell adds ~3 minutes to Phase A.
+
+**Instead:** All pre-computation outputs are frozen artifacts. Workers only do lookups (O(1) dict access) against pre-computed tables.
+
+### Anti-Pattern 4: Single-File Parquet Writer With Queue
+
+**What:** A dedicated writer process that receives result dicts from a queue and writes them to a single `phase_a_results.parquet`.
+
+**Why bad:** pyarrow's `ParquetWriter` can append rows, but the writer process becomes a throughput bottleneck. At ~40 results/second across 14 workers, the queue overhead is measurable at scale. More importantly, a writer crash loses all buffered results.
+
+**Instead:** Per-worker shards + merge. Each shard is immediately durable on disk. A worker crash loses at most one shard's worth of cells, which can be rerun.
+
+### Anti-Pattern 5: Flat Module Structure
+
+**What:** All Python files in one directory or one large script.
+
+**Why bad:** The pre-computation phase and search phase have completely different execution lifecycles, test strategies, and dependencies. Mixing them makes it impossible to run the tool table generator without importing the search coordinator.
+
+**Instead:** See module structure below.
 
 ---
 
-## Pitfall: Scene Rebuild Cost
+## Module / File Structure
 
-Genesis compiles Taichi kernels on `scene.build()`. A full rebuild takes 30-60 seconds on GPU. Do not rebuild the scene per candidate. Instead:
+```
+eden_optimizer/
+├── solver/
+│   ├── build/                   # C++ build artifacts (CMake)
+│   │   └── opw_kinematics.so    # compiled pybind11 extension
+│   ├── opw_kinematics.cpp       # C++ OPW implementation + pybind11 bindings
+│   ├── CMakeLists.txt
+│   ├── opw_params.py            # M-20iD/20 OPW parameter constants + loader
+│   └── validate.py              # FK→IK validation suite (run standalone)
+│
+├── precompute/
+│   ├── tool_table.py            # sweeps tool space, writes valid_tools.json
+│   ├── riser_table.py           # deflection + modal model, writes riser_validity_table.json
+│   ├── target_db.py             # generates target_database/ tree
+│   └── run_all.py               # orchestrates Steps 0-4 in sequence
+│
+├── collision/
+│   ├── scene.py                 # CollisionScene class (FCL wrapper)
+│   ├── beam_mesh.py             # builds FCL BVH from AISC cross-section
+│   └── static_objects.py       # wall planes, conveyor, ground
+│
+├── search/
+│   ├── worker.py                # worker_init() + evaluate_cell() — the core evaluator
+│   ├── filters.py               # filter cascade functions (riser, envelope, spot IK)
+│   ├── beam_eval.py             # full beam evaluation loop with reach/geometry split
+│   ├── phase_a.py               # Phase A coordinator: builds grid, runs pool, merges
+│   └── phase_b.py               # Phase B coordinator: builds grid, runs pool, merges
+│
+├── reporting/
+│   ├── select_top.py            # reads Parquet, selects top-500 / top-10 configs
+│   ├── heatmap.py               # reachability heatmap generation
+│   ├── gap_report.py            # gap analysis: which beams/faces/poses fail, why
+│   ├── error_budget.py          # RSS error budget report per config
+│   └── visualize.py             # URDF scene renders of top-10 configs
+│
+├── data/
+│   ├── valid_tools.json         # output of precompute/tool_table.py
+│   ├── riser_validity_table.json
+│   └── target_database/         # tree of beam JSON files
+│
+├── results/
+│   ├── phase_a_worker_*.parquet  # per-worker shards
+│   ├── phase_a_results.parquet   # merged Phase A output
+│   ├── phase_b_worker_*.parquet
+│   ├── phase_b_results.parquet   # merged Phase B output
+│   ├── best_config.json
+│   ├── top_10_configs.json
+│   └── ...
+│
+├── config.py                    # all physical constants: wall positions, conveyor height,
+│                                #   robot mass, joint limits, anchor bolt stiffness, etc.
+│                                #   No magic numbers in module code.
+└── run.py                       # top-level CLI: run_precompute, run_phase_a, run_phase_b,
+                                 #   run_reports, or run_all
+```
 
-1. Build once with robot at a nominal position
-2. Between candidates: `robot.set_pos([X, Y, Z])` then `scene.reset()` to flush physics state
-3. Verify that `set_pos` on a `fixed=True` URDF correctly translates the base — test this in Step 2 before the search loop exists
+**config.py is load-bearing.** All physical constants (wall positions, conveyor height, robot specs, anchor bolt stiffness estimates, error budget allocations) must live here, never hardcoded in module bodies. This is the single source of truth for physical parameters and makes the system auditable against the V3 spec by comparing config.py to spec sections 2-8.
 
-If `set_pos` on a fixed-base entity does not work as expected in Genesis 0.3.4, the fallback is to keep a list of ~10 scene instances pre-built at positions covering the search space, and map each candidate to the nearest pre-built scene. This is a known complexity risk — confirm in Step 2.
+---
+
+## Scalability Considerations
+
+| Concern | Current (i5-13600K, 14 threads) | If more cores available | Notes |
+|---------|--------------------------------|------------------------|-------|
+| Phase A wall time (~18 hrs) | ~18 hrs at 14 threads | Linear speedup to ~32 cores | After ~32 cores, RAM bandwidth for target DB becomes limit |
+| Phase B wall time (~5 hrs) | ~5 hrs at 14 threads | Linear speedup | 522k cells is embarrassingly parallel |
+| Target DB RAM footprint | ~hundreds MB (estimate) | Same | All beams in AISC ≤300 lb/ft, 25 mm pose spacing — bounded |
+| Parquet merge time | Seconds (columnar concat) | Seconds | Merge is not on the critical path |
+| Riser table recompute | Seconds | Seconds | 5 sections × 8 heights = 40 pairs |
+| Tool table recompute | Minutes | Minutes | ~6960 raw candidates, vectorizable with NumPy |
+
+The architecture is embarrassingly parallel at the cell level. No shared mutable state between workers. Scaling to more cores requires only changing the `Pool(N)` argument. The target database RAM load is the practical memory limit.
 
 ---
 
 ## Sources
 
-- Genesis 0.3.4 source code: `/mnt/intelligence/GitHub_Projects/MechanicalDesignTools/Robot_Simulations/eden/.venv/lib/python3.12/site-packages/genesis/`
-  - `engine/entities/rigid_entity/rigid_entity.py` — IK, Jacobian, contact APIs (confirmed line numbers above)
-  - `options/morphs.py` — URDF morph defaults including `requires_jac_and_IK=True`
-- Project specification: `Robot_Simulations/Optimizing_Robot_Placement.md`
-- Eden project document: `.planning/PROJECT.md`
-- Eden folder structure: `Robot_Simulations/eden/docs/FOLDER_STRUCTURE.md`
-- Existing Eden experiments: `experiments/phase2/scene_builder_demo.py`, `experiments/phase2/urdf_import_validation.py`
-- Existing DES Fanuc config: `engineering_tools/simulation/DES/core/machines/subsystems/robots/configs/fanuc.json`
-- Yoshikawa manipulability measure: T. Yoshikawa, "Manipulability of Robotic Mechanisms," The International Journal of Robotics Research, 1985 — standard formulation, not web-sourced
+- EDEN Cell Optimizer V3 Specification (`Robot_Simulations/Optimizing_Robot_Placement.md`)
+- EDEN Cell Optimizer PROJECT.md (`/.planning/PROJECT.md`)
+- Established Python multiprocessing patterns for CPU-bound C extension workloads (HIGH confidence — standard CPython behavior on Linux)
+- pybind11 documentation: fork safety, GIL, module import patterns (HIGH confidence — well-documented CPython/pybind11 behavior)
+- pyarrow Parquet documentation: per-file write model, schema enforcement, concat_tables (HIGH confidence — standard pyarrow patterns)
+- python-fcl architecture: C++ object ownership, no cross-process sharing (HIGH confidence — standard pattern for Python-wrapped C++ libraries)
