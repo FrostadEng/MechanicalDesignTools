@@ -1,124 +1,114 @@
-# Requirements: Eden Cell Optimizer — PCR42 Heavy Steel Robot Placement
-
-**Defined:** 2026-04-13
-**Core Value:** Prove static robot mounting achieves 100% reachability for PCR42 structural steel processing, eliminating 1-axis positioners.
-
----
+# EDEN Cell Optimizer — V1 Requirements
 
 ## v1 Requirements
 
-### Phase 0 — AISC Filter and Shape Classification
+### Solver (OPW IK Foundation)
 
-- [ ] **AISC-01**: Pipeline loads and queries `aisc_shapes.json` via `aisc.py` SectionProperties API
-- [ ] **AISC-02**: Filters all AISC shapes to PCR42 constraints: weight ≤ 300 lbs/ft and max cross-sectional dimension ≤ 1100mm
-- [ ] **AISC-03**: Classifies valid shapes into categories: 3-face (W, S, M, HP, C, MC), 4-face (HSS rect/sq/pipe), L-angle-A (long leg near datum), L-angle-B (short leg near datum)
-- [ ] **AISC-04**: L-angle shapes with unequal legs are tested in both orientations and produce two separate MME entries
-- [ ] **AISC-05**: All AISC dimensional values converted from Pint `ureg.mm` quantities to raw floats before any geometric computation
+- [ ] **SOLV-01**: Developer can build and import the OPW kinematics C++ pybind11 extension achieving ≥4 µs/query on the target i5-13600K host
+- [ ] **SOLV-02**: Developer can run 500+ FK→IK round-trip validation tests confirming position error <0.01 mm and orientation error <0.01° for random configs within M-20iD/20 joint limits
+- [ ] **SOLV-03**: Developer can confirm OPW parameter values (a1, a2, b, c1, c2, c3, c4) produce a reachable workspace matching Fig 3.2a operating space diagram from Fanuc manual B-84074EN/03
+- [ ] **SOLV-04**: Developer can run IK on known wrist-aligned and full-extension singularity poses and observe documented solver behavior (not silent failure)
+- [ ] **SOLV-05**: Developer can verify M-20iD/20 joint limits (J1 ±170°, J2 -100°/+160°, J3 -190°/+268.4°, J4 ±200°, J5 ±270°, J6 ±450°) are enforced and all 8 OPW solutions filtered correctly
 
-### Phase 0 — Maximum Material Envelope (MME)
+### Environment
 
-- [ ] **MME-01**: Computes composite worst-case bounding box (max width × max depth) per shape category
-- [ ] **MME-02**: Generates scaled 2D matplotlib overlay per category showing all valid cross-section profiles superimposed
-- [ ] **MME-03**: Each overlay includes: Y=0 conveyor line, X=0 datum roller line, all valid cross-sections, and the composite MME bounding box
-- [ ] **MME-04**: Exports one PNG per category to `eden/experiments/Beam_Coping_Machine/phase0_2d_mme/`
-- [ ] **MME-05**: Exports `phase0_results.json` to `phase0_2d_mme/` with schema: `{category: {mme_width_mm, mme_depth_mm, shape_count, shapes[]}}`
+- [ ] **ENV-01**: Developer can run the optimizer from a dedicated venv (venv_optimizer) with all required dependencies installed (pybind11, python-fcl, pyarrow, numpy, scipy, trimesh, pyvista, tqdm, aisc.py)
+- [ ] **ENV-02**: Developer can import a single `config.py` containing all physical constants (robot geometry, workzone bounds, TCP budget sub-allocations, conveyor dimensions, all section properties) with no magic numbers in any other module
+- [ ] **ENV-03**: Developer can run the optimizer on Linux (Ubuntu 22.04+) with Python multiprocessing using `spawn` start method (never `fork`) without pybind11 GIL corruption
 
-### Phase 1 — Genesis Environment and FANUC URDF
+### Tool Design Table (Phase 1 of spec)
 
-- [ ] **ENV-01**: `ros-industrial/fanuc` repository cloned as git submodule into `eden/assets/fanuc/`
-- [ ] **ENV-02**: URDF `package://` URI references patched to relative filesystem paths so Genesis can resolve STL meshes without a ROS2 environment
-- [ ] **ENV-03**: FANUC M-20iD/12L URDF loads in Genesis with `requires_jac_and_IK=True` set explicitly; smoke test confirms no runtime crash after `scene.build()`
-- [ ] **ENV-04**: Robot scale validated: at home position, `robot.get_link("tool0").pos` Z-component reads approximately 0.911m (±10mm); fail if <0.5m or >1.5m
-- [ ] **ENV-05**: Genesis IK smoke test: call `robot.inverse_kinematics(link, known_reachable_pos, quat, return_error=True)` and confirm translational residual < 0.002m
+- [ ] **TOOL-01**: Developer can sweep all combinations of (torch_angle ∈ {0°,30°,45°,60°,90°}) × (boom_length 155mm to deflection limit, 6mm steps) × (puck_drop 0–140mm, 6mm steps) and compute per-tool mass, CG, and TCP transform
+- [ ] **TOOL-02**: Developer can reject tool candidates where safety-factored mass (1.25×) or CG position violates Fanuc M-20iD/20 wrist load diagram (Fig 3.5c) allowable region
+- [ ] **TOOL-03**: Developer can reject tool candidates where allowable wrist moments (J4/J5: 110 N·m, J6: 60 N·m) or inertia (J4/J5: 4.0 kg·m², J6: 1.5 kg·m²) are exceeded
+- [ ] **TOOL-04**: Developer can reject tool candidates where boom static deflection under puck+cable mass exceeds 0.20 mm
+- [ ] **TOOL-05**: Developer can cluster valid tools by (TCP_xyz at 5mm, CG_xy at 5mm, torch_angle exact) and select one representative per cluster (centroid-closest member), producing ~150–200 representative tools
+- [ ] **TOOL-06**: Developer can export `valid_tools.json` with all ~1044 valid tool entries including tool_id, all geometry parameters, mass, CG, TCP transform, tcp_cluster_id, wrist_load_margin_pct, boom_deflection_mm
 
-### Phase 1 — Scene Builder
+### Riser Deflection and Modal Model
 
-- [ ] **SCENE-01**: `scene_builder.py` builds a Genesis scene with conveyor (block proxy), pinch unit (block proxy), and FANUC robot; `show_viewer=False` in search mode
-- [ ] **SCENE-02**: Scene is built once; robot repositioned between candidates via `robot.set_pos([X, Y, Z])` + `scene.reset()` — never rebuilt per candidate
-- [ ] **SCENE-03**: `set_pos()` behavior on `fixed=True` URDF validated empirically; if it does not work, fallback to `n_envs` batch evaluation and architecture is documented
-- [ ] **SCENE-04**: CollisionBody factory implements `.from_box(dims, pose)` and `.from_step(path, pose)` so block proxies can be swapped for real STEP meshes without touching evaluator code
-- [ ] **SCENE-05**: Conveyor geometry models the inter-roller gap (region where bottom-face cutting TCP paths must reach through)
+- [ ] **RISER-01**: Developer can compute TCP deflection for each (riser_section, riser_height) pair using closed-form superposition: column bending (Euler-Bernoulli) + baseplate rotation (anchor bolt stretch + grout compression)
+- [ ] **RISER-02**: Developer can reject (section, height) pairs where column + baseplate deflection exceeds 0.55 mm under worst-case gravity load (robot at full extension with max tool mass)
+- [ ] **RISER-03**: Developer can compute first natural frequency f₁ = (1/2π)√(k_eff/m_eff) for each (section, height) pair and reject configurations where f₁ < 15 Hz
+- [ ] **RISER-04**: Developer can export `riser_validity_table.json` mapping each (section, height) pair to pass/fail status with computed δ_TCP and f₁ values
+- [ ] **RISER-05**: Developer can see k_anchor sensitivity margin in riser_validity_table output (flagged for hardware validation, not just nominal value)
 
-### Phase 1 — TCP Path Generator and Reach Pre-Filter
+### Collision Environment
 
-- [ ] **PATH-01**: `tcp_path_generator.py` generates ordered `(pos, quat)` waypoints per face for a given shape category and beam placement, with 50mm spacing along each face
-- [ ] **PATH-02**: TCP normals are perpendicular to each face; tool orientation is free about the face-normal axis (addressed via Genesis `rot_mask` parameter)
-- [ ] **PATH-03**: Paths are generated separately for WZ1 (+1.5ft to +4.0ft) and WZ2 (-1.5ft to -3.0ft); foot values converted via `FT = 0.3048` defined once at module level
-- [ ] **PATH-04**: `reach_prefilter.py` eliminates base positions analytically: a candidate `[X, Y, Z_base]` is rejected if any WZ corner point falls outside the robot's reachability annulus (inner radius: min_reach, outer radius: FANUC M-20iD/12L max reach confirmed from spec sheet)
-- [ ] **PATH-05**: Pre-filter operates on worst-case WZ corners (not centroid) including max beam depth from MME
+- [ ] **COLL-01**: Developer can initialize a python-fcl collision scene with static boundary wall planes (X = ±515 mm), conveyor surface (Z = 838 mm), and ground plane (Z = 0)
+- [ ] **COLL-02**: Developer can load any AISC shape from aisc.py, extrude it to a 3D mesh spanning the workzone (X = ±1500 mm), positioned with datum edge at Y=0, top at Z=838mm, and verify the mesh is watertight before adding to the FCL scene
+- [ ] **COLL-03**: Developer can check tool geometry (boom, puck, torch body, cable, tennis racket) against the static environment and active beam mesh in a per-evaluation FCL collision query
+- [ ] **COLL-04**: Developer can check robot self-collision (arm link meshes against tennis racket and workzone walls) for each IK solution
 
-### Phase 2 — Evaluator
+### Target Database
 
-- [ ] **EVAL-01**: `evaluator.py` accepts a candidate base position `[X, Y, Z]` and a set of TCP waypoints; returns pass/fail with failure reason
-- [ ] **EVAL-02**: IK check per waypoint uses `return_error=True`; rejects if translational residual ≥ 0.002m or rotational residual ≥ 0.01 rad
-- [ ] **EVAL-03**: Post-IK joint position audit: `qpos` clipped against URDF joint limits; position that requires joints outside limits is rejected
-- [ ] **EVAL-04**: Collision check runs `scene.step()` at the resolved `qpos` and calls `robot.get_contacts(with_entity=...)` for conveyor, pinch unit, and beam; contact = reject
-- [ ] **EVAL-05**: J5 singularity rejection: if J5 joint angle is within ±5 degrees of 0 at any waypoint in the path, the candidate is rejected
-- [ ] **EVAL-06**: Manipulability index computed for each passing waypoint: `w = sqrt(det(J @ J.T))` using `robot.get_jacobian(link)` if available, else finite-difference fallback; uses `eigvalsh` to avoid NaN near singularity
-- [ ] **EVAL-07**: WZ1 and WZ2 evaluated independently; candidate passes only if both zones pass; failure reason distinguishes WZ1-only-fail vs WZ2-only-fail vs both
+- [ ] **TARG-01**: Developer can query aisc.py for all rolled shapes ≤300 lb/ft with profile width ≤56″ and generate straight-cut sweep poses (25mm spacing, 6-DOF) along each accessible face for each shape
+- [ ] **TARG-02**: Developer can apply clearance rules (torch body width 3″, min 1.5″ from inner corners/flange edges/re-entrant features) when generating target poses to exclude unreachable near-corner regions
+- [ ] **TARG-03**: Developer can generate cope trajectory pose sequences (square, radius, block) for representative small/medium/large sections per shape family as ordered 6-DOF pose lists
+- [ ] **TARG-04**: Developer can sort all beams into `reach_hardest_first` list (largest cross-section dimensions first) and `geometry_hardest_first` list (unusual angles, deep re-entrants first)
+- [ ] **TARG-05**: Developer can export the full target database to `target_database/` with per-shape JSON files (straight cuts + cope trajectories) and `beam_difficulty_ranking.json`; all files are read-only frozen after generation
 
-### Phase 2 — Search Loop and Results
+### Search Infrastructure
 
-- [ ] **SEARCH-01**: Search space bounded by: X in configurable range (default ±2m), Y in configurable range (default ±2m), Z in [0, 1.0m]; pitch=0, roll=0 (hard constraints)
-- [ ] **SEARCH-02**: Reach pre-filter applied before any Genesis evaluation; logged with count of candidates eliminated
-- [ ] **SEARCH-03**: Initial search uses Optuna TPE sampler (`optuna>=3.6.0`) to propose `[X, Y, Z]` candidates; objective = maximize mean manipulability across all passing waypoints
-- [ ] **SEARCH-04**: If Optuna search finds no valid candidates, falls back to a coarse 100mm grid scan over the pre-filtered region with a warning logged
-- [ ] **SEARCH-05**: `results_logger.py` writes `results.csv` and `results.json` to `phase1_3d_sim/output/` sorted descending by mean manipulability; includes per-candidate: position, mean_w, WZ1_pass, WZ2_pass, failure_reason
-- [ ] **SEARCH-06**: Search is parameterized: TCP offset `[x, y, z]` relative to J6 faceplate is a required CLI/config argument; tool aborts with a clear error if not provided
-- [ ] **SEARCH-07**: Runtime logged per evaluation; final run summary reports: candidates evaluated, candidates passed, best position, best manipulability score, total runtime
+- [ ] **SRCH-01**: Developer can run a 100-cell smoke test of the full Phase A worker pipeline (filter cascade → beam evaluation → Parquet write) with verified correct results before any long run
+- [ ] **SRCH-02**: Developer can run Phase A grid search (~180 representative tools × 29,280 placement configs) with filter cascade: riser validity lookup → geometric reach envelope → 8-point IK spot check → full beam evaluation (reach-hardest-first with refined early termination)
+- [ ] **SRCH-03**: Developer can distinguish reach-fail (IK fails globally on a beam — early terminate remaining beams) from geometry-fail (IK succeeds elsewhere but collision/joint-limit on specific face — continue remaining beams) in the early termination logic
+- [ ] **SRCH-04**: Developer can write Phase A results as incremental per-worker Parquet shards with atomic rename, surviving a mid-run worker crash without losing completed work
+- [ ] **SRCH-05**: Developer can select top-750 unique placements from Phase A by reachability_pct (descending) then hardware_cost (ascending)
+- [ ] **SRCH-06**: Developer can run Phase B grid search (all ~1044 valid tools × top-750 placements) with same filter cascade plus cope feasibility check (only when reachability ≥ 95%)
+- [ ] **SRCH-07**: Developer can verify riser height is correctly propagated into the robot base transform T_world_base for every grid cell evaluation (regression test: same placement at H=0 vs H=914mm must produce different IK results)
+- [ ] **SRCH-08**: Developer can run all search workers in multiprocessing.Pool with `spawn` start method, worker initializer loading OPW and FCL scene, passing only plain Python dicts through the task queue
 
----
+### Scoring and Results
 
-## v2 Requirements
+- [ ] **SCOR-01**: Developer can compute per-config scores: reachability_pct (% of all straight-cut poses reached across full AISC catalog), manipulability_mean (average Jacobian manipulability), hardware_cost (riser_height + boom_length + puck_drop), tcp_error_estimate (RSS of modeled contributors)
+- [ ] **SCOR-02**: Developer can export `best_config.json`, `top_10_configs.json`, and `passing_configs.json` (all configs achieving 100% reachability if any) from Phase B results
+- [ ] **SCOR-03**: Developer can generate `reachability_heatmap.json` (per-beam pass/fail breakdown for best config) and `cope_report.json` (per-cope pass/fail) and `gap_report.json` (which beams/faces/poses fail, categorized by reach vs. geometry vs. collision)
+- [ ] **SCOR-04**: Developer can generate `error_budget_report.json` showing modeled contributors (riser column, baseplate, tool boom) vs. unmodeled terms (robot accuracy, thermal, beam positioning, cable drag) for each top-10 config
+- [ ] **SCOR-05**: Developer can generate `run_metadata.json` capturing timing, grid dimensions, and per-filter rejection rates for the completed run
 
-### STEP Mesh Integration
+### Logging and Dual-Unit Output
 
-- **STEP-01**: Real STEP collision meshes for pinch_unit and conveyor loaded from user-supplied CAD files
-- **STEP-02**: Block proxy dimensions auto-sized from STEP mesh bounding box for continuity across proxy/real runs
+- [ ] **LOG-01**: Developer can see all physical quantities logged in both Imperial (in, lb, °F) and SI (mm, kg, °C) units throughout the optimizer output
+- [ ] **LOG-02**: Developer can see per-cell rejection reasons logged (which filter rejected, what value failed what threshold) for debugging and filter-rejection-rate analysis
 
 ### Visualization
 
-- **VIZ-01**: Post-run heatmap of manipulability scores projected onto X-Y floor plane (matplotlib)
-- **VIZ-02**: Optional Genesis viewer scene showing robot at best-candidate position with all TCP waypoints rendered
+- [ ] **VIZ-01**: Developer can generate URDF scene renders of the top-10 configs showing robot, riser, tool, and workzone geometry using trimesh or pyvista
 
-### Advanced Search
+## v2 Requirements (Deferred)
 
-- **ADV-01**: Two-stage search: Optuna TPE coarse scan followed by dense 10mm grid within best-found ±100mm window
-- **ADV-02**: Multi-shape-category search in one run with combined manipulability score (worst-case across categories)
-
----
+- Active beam-to-tool FCL collision check per evaluation (per-beam scene rebuild inside inner loop) — high complexity, Phase B enhancement
+- Robot link STL mesh self-collision in detail (current v1 uses simplified geometry)
+- Hardware validation reporting template (checklist for laser tracker, modal test, test cut, strain gauge, thermal soak per top-10 config)
+- Multi-zone optimization (secondary workzone, zone-switching placements)
+- Dynamic path simulation (trajectory planner integration, cable whip, vibration excitation analysis)
+- Closed-loop TCP correction / seam tracking support
+- Robot calibration workflow integration (post-laser-tracker kinematic model update, re-run Phase B)
 
 ## Out of Scope
 
-| Feature | Reason |
-|---------|--------|
-| RL / reward function training | Old Eden automotive use case; this project is deterministic IK search only |
-| Trajectory smoothness / motion planning | Answers placement question only; path quality is a post-placement concern |
-| Cycle time / throughput analysis | Handled by PCR41/PCR42 DES; out of scope for placement tool |
-| Multi-robot configurations | Single FANUC M-20iD/12L only for this milestone |
-| Genesis viewer in search loop | show_viewer=False in all search runs; viewer causes timeout in headless Docker |
-| BoTorch/Ax Gaussian process optimizer | GP training overhead (50-200ms/iter) unjustified when IK evaluation is 1-5ms; Optuna TPE sufficient |
-| mech_core install into eden venv | Pulls PySide6 and other heavy GUI deps; use sys.path bridge or file contract instead |
-
----
+- Machine learning, genetic algorithms, Bayesian optimization — brute force exhaustive search only
+- ROS1/ROS2/catkin/roslaunch dependencies — standalone Python + C++ only
+- GUI or interactive visualization — batch optimizer with file outputs only
+- GPU compute — workload is CPU-bound; no CUDA
+- Real-time robot control or communication — offline planning tool
+- Secondary workzone or cantilevered riser configurations — single straight riser, single zone
+- Continuous riser height grid — discrete stock lengths only
+- Fanuc-specific robot communication (Karel, TP programs) — output is placement spec, not robot programs
+- STEP/CAD file generation — JSON and text outputs only
 
 ## Traceability
 
-| Requirement | Phase | Status |
-|-------------|-------|--------|
-| AISC-01 through AISC-05 | Phase 1 | Pending |
-| MME-01 through MME-05 | Phase 2 | Pending |
-| ENV-01 through ENV-05 | Phase 3 | Pending |
-| SCENE-01 through SCENE-05 | Phase 4 | Pending |
-| PATH-01 through PATH-05 | Phase 5 | Pending |
-| EVAL-01 through EVAL-07 | Phase 6 | Pending |
-| SEARCH-01 through SEARCH-07 | Phases 7–8 | Pending |
-
-**Coverage:**
-- v1 requirements: 37 total
-- Mapped to phases: 37
-- Unmapped: 0 ✓
-
----
-*Requirements defined: 2026-04-13*
-*Last updated: 2026-04-13 after initial definition*
+| REQ-ID | Phase | Notes |
+|--------|-------|-------|
+| SOLV-01 to SOLV-05 | Phase 1 | Blocking gate — must complete before any grid search |
+| ENV-01 to ENV-03 | Phase 1 | Part of solver foundation setup |
+| TOOL-01 to TOOL-06 | Phase 2 | Pre-computation artifact; independent of riser model |
+| RISER-01 to RISER-05 | Phase 2 | Pre-computation artifact; independent of tool table |
+| COLL-01 to COLL-04 | Phase 2 | Depends on aisc.py (ENV-01) and beam mesh logic |
+| TARG-01 to TARG-05 | Phase 2 | Depends on COLL environment being established |
+| SRCH-01 to SRCH-08 | Phase 3 | Depends on all Phase 2 pre-computation artifacts |
+| SCOR-01 to SCOR-05 | Phase 4 | Depends on Phase 3 Parquet results |
+| LOG-01 to LOG-02 | Phase 1–4 | Implemented alongside each component |
+| VIZ-01 | Phase 4 | Post-search reporting |
